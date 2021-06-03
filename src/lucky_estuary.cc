@@ -97,7 +97,8 @@ bool LuckyEstuary::fetch(const uint8_t* key, uint8_t* val) const {
 	return false;
 }
 
-unsigned LuckyEstuary::batch_fetch(unsigned batch, const uint8_t* keys, uint8_t* data, const uint8_t* dft_val) const {
+unsigned LuckyEstuary::batch_fetch(unsigned batch, const uint8_t* __restrict__ keys, uint8_t* __restrict__ data,
+								   const uint8_t* __restrict__ dft_val) const {
 	constexpr unsigned WINDOW_SIZE = 16;
 	struct State {
 		unsigned idx;
