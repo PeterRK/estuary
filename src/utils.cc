@@ -150,7 +150,6 @@ MemMap::MemMap(const char* path, LoadByCopy) {
 		m_size = stat.st_size;
 	}
 	close(fd);
-
 }
 
 MemMap::~MemMap() noexcept {
