@@ -32,6 +32,7 @@ estuary::Estuary::Config CONFIG = {
 };
 
 TEST(Estuary, BuildAndRead) {
+	estuary::Logger::Bind(nullptr);
 	const std::string filename = "tmp.es";
 
 	VariedValueGenerator source(0, PIECE);

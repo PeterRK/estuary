@@ -12,7 +12,7 @@ Benchmark was done on Tencent cloud and Huawei cloud.
 * fine-grained locking
 * high read performance
 * support key and value with variable length
-* aceptable space overhead (ablout 25 bytes per item + 12.5% data size)
+* aceptable space overhead (ablout 21 bytes per item + 10% data size)
 * work on CPU support little-endian unaligned memory access (X86，ARM，RISC-V...)
 
 

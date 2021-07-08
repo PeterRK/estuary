@@ -94,16 +94,13 @@ static constexpr size_t MAX_ENTRY = 1ULL << 34U;
 static constexpr unsigned ADDR_BITWIDTH = 43;
 static constexpr size_t DATA_BLOCK_LIMIT = (1ULL << ADDR_BITWIDTH) - 2U;
 
-static constexpr size_t DATA_RESERVE_FACTOR = 8;    // 1/DATA_RESERVE_FACTOR data is reserved clean
+static constexpr size_t DATA_RESERVE_FACTOR = 10;   // 1/DATA_RESERVE_FACTOR data is reserved clean
 static constexpr size_t ENTRY_RESERVE_FACTOR = 8;   // 1/ENTRY_RESERVE_FACTOR entries are reserved clean
-static constexpr size_t ENTRY_SPACE_FACTOR = 2;     // 1/ENTRY_SPACE_FACTOR entries are available for items
-
-static_assert(ENTRY_SPACE_FACTOR > 1);
+static constexpr size_t TotalEntry(size_t item_limit) { return item_limit*3/2; }
+static constexpr size_t ItemLimit(size_t entry) { return entry*2/3; }
+static_assert(ENTRY_RESERVE_FACTOR > 3);
 static_assert(MAX_ENTRY < DATA_BLOCK_LIMIT / 2);
 static_assert(MIN_ENTRY > ENTRY_RESERVE_FACTOR);
-static_assert(ENTRY_RESERVE_FACTOR > ENTRY_SPACE_FACTOR);
-static_assert((MIN_ENTRY % ENTRY_SPACE_FACTOR) == 0);
-static_assert((MAX_ENTRY % ENTRY_SPACE_FACTOR) == 0);
 
 const char* LockException::what() const noexcept {
 	return "fail to handle lock";
@@ -390,13 +387,13 @@ size_t Estuary::data_free() const {
 }
 size_t Estuary::item_limit() const {
 	if (m_meta == nullptr) return 0;
-	return m_const.total_entry.value() / ENTRY_SPACE_FACTOR + 1;
+	return ItemLimit(m_const.total_entry.value());
 }
 
 bool Estuary::_update(Slice key, Slice val) const {
 	auto new_block = RecordBlocks(key.len, val.len);
 	if (m_meta->free_block < new_block + TOTAL_RESERVED_BLOCK
-		|| m_meta->item > m_const.total_entry.value() / ENTRY_SPACE_FACTOR) {
+		|| TotalEntry(m_meta->item) > m_const.total_entry.value()) {
 		return false;
 	}
 	ConsistencyAssert(m_meta->block_cursor < m_const.total_block
@@ -740,7 +737,7 @@ bool Estuary::ResetLocks(const std::string& path) {
 }
 
 bool Estuary::Create(const std::string& path, const Config& config, IDataReader* source) {
-	if (config.item_limit < MIN_ENTRY / ENTRY_SPACE_FACTOR || config.item_limit > MAX_ENTRY / ENTRY_SPACE_FACTOR
+	if (TotalEntry(config.item_limit) < MIN_ENTRY || TotalEntry(config.item_limit) > MAX_ENTRY
 		|| config.max_key_len == 0 || config.max_key_len > MAX_KEY_LEN
 		|| config.max_val_len == 0 || config.max_val_len > MAX_VAL_LEN
 		|| config.avg_size_per_item < 2 || config.avg_size_per_item > config.max_key_len+config.max_val_len) {
@@ -754,7 +751,7 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 
 	static_assert(sizeof(Header)%sizeof(uintptr_t) == 0, "alignment check");
 
-	header.total_entry = config.item_limit * ENTRY_SPACE_FACTOR;
+	header.total_entry = TotalEntry(config.item_limit);
 	header.clean_entry = header.total_entry;
 	header.lock_mask = CalcLockMask(config.concurrency);
 	auto block_per_item = ((config.avg_size_per_item+sizeof(uint32_t))+(DATA_BLOCK_SIZE-1))/DATA_BLOCK_SIZE;

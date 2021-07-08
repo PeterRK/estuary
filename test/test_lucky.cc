@@ -24,6 +24,7 @@
 #include "test.h"
 
 TEST(LuckyEstuary, BuildAndRead) {
+	estuary::Logger::Bind(nullptr);
 	const std::string filename = "tmp.les";
 	constexpr unsigned PIECE = estuary::LuckyEstuary::MIN_CAPACITY+1;
 
