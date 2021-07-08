@@ -233,6 +233,7 @@ bool Estuary::fetch(Slice key, std::string& out) const {
 }
 
 bool Estuary::_fetch(Slice key, std::string& out) const {
+	out.clear();
 	auto code = Hash(key.ptr, key.len, m_const.seed);
 	struct {
 		uint32_t tag = 0;
@@ -256,8 +257,7 @@ bool Estuary::_fetch(Slice key, std::string& out) const {
 					snapshot.ent = &ent;
 					snapshot.tag = tag;
 				} else {
-					out.resize(snapshot.val_len);
-					memcpy(out.data(), RcVal(BLK(e.blk)), snapshot.val_len);
+					out.assign(reinterpret_cast<const char*>(RcVal(BLK(e.blk))), snapshot.val_len);
 				}
 				return true;
 			}
@@ -269,7 +269,7 @@ bool Estuary::_fetch(Slice key, std::string& out) const {
 	}
 	//target entry is found, it never move without sweeping
 	for (Entry e = CLEAN_ENTRY;;) {
-		out.resize(snapshot.val_len);
+		out.reserve(snapshot.val_len);
 		ReadLock lk(GET_LOCK(snapshot.tag));
 		e.load_relaxed(*snapshot.ent);
 		if (LIKELY(!IsEmpty(e) && e.tag == snapshot.tag && KeyMatch(key, BLK(e.blk)))) {
@@ -277,8 +277,7 @@ bool Estuary::_fetch(Slice key, std::string& out) const {
 			if (UNLIKELY(out.capacity() < snapshot.val_len)) {
 				continue;
 			}
-			out.resize(snapshot.val_len);
-			memcpy(out.data(), RcVal(BLK(e.blk)), snapshot.val_len);
+			out.assign(reinterpret_cast<const char*>(RcVal(BLK(e.blk))), snapshot.val_len);
 			return true;
 		}
 		return false;
