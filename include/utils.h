@@ -57,6 +57,7 @@ public:
 	uint8_t* addr() const noexcept { return m_addr; }
 	const uint8_t* end() const noexcept { return m_addr + m_size; }
 	bool operator!() const noexcept { return m_addr == nullptr; }
+	bool dump(const char* path) const noexcept;
 private:
 	MemMap(const MemMap&) noexcept = delete;
 	MemMap& operator=(const MemMap&) noexcept = delete;

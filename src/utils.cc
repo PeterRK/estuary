@@ -164,4 +164,26 @@ MemMap::~MemMap() noexcept {
 	}
 }
 
+bool MemMap::dump(const char* path) const noexcept {
+	if (!*this) {
+		return false;
+	}
+	auto fd = open(path, O_CREAT|O_TRUNC|O_WRONLY, 0644);
+	if (fd < 0) {
+		Logger::Printf("fail to open file: %s\n", path);
+		return false;
+	}
+	ssize_t remain = m_size;
+	for (auto buf = m_addr; remain > 0;) {
+		auto sz = write(fd, buf, remain);
+		if (sz < 0) {
+			break;
+		}
+		buf += sz;
+		remain -= sz;
+	}
+	close(fd);
+	return remain == 0;
+}
+
 } //estuary

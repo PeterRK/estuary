@@ -82,6 +82,10 @@ public:
 	enum LoadPolicy {SHARED, MONOPOLY, COPY_DATA};
 	static LuckyEstuary Load(const std::string& path, LoadPolicy policy=MONOPOLY);
 
+	bool dump(const std::string& path) const noexcept {
+		return m_resource.dump(path.c_str());
+	}
+
 	struct Meta;
 	struct Mutex;
 

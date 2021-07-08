@@ -81,6 +81,10 @@ public:
 	//concurrency > 0 means overwriting the origin value in monopoly mode
 	static Estuary Load(const std::string& path, LoadPolicy policy=MONOPOLY, unsigned concurrency=0);
 
+	bool dump(const std::string& path) const noexcept {
+		return m_resource.dump(path.c_str());
+	}
+
 	struct Meta;
 	struct Locks;
 
