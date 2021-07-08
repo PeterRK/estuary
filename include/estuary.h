@@ -77,8 +77,9 @@ public:
 	static bool Create(const std::string& path, const Config& config, IDataReader* source=nullptr);
 	static bool ResetLocks(const std::string& path);
 
+	enum LoadPolicy {SHARED, MONOPOLY, COPY_DATA};
 	//concurrency > 0 means overwriting the origin value in monopoly mode
-	static Estuary Load(const std::string& path, bool monopoly=true, unsigned concurrency=0);
+	static Estuary Load(const std::string& path, LoadPolicy policy=MONOPOLY, unsigned concurrency=0);
 
 	struct Meta;
 	struct Locks;

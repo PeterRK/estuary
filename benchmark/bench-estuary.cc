@@ -30,12 +30,14 @@
 DEFINE_string(file, "bench.es", "dict filename");
 DEFINE_uint32(thread, 4, "number of worker threads");
 DEFINE_bool(build, false, "build instead of fetching");
+DEFINE_bool(copy, false, "load by copy");
 DEFINE_bool(disable_write, false, "disable write");
 
 static constexpr size_t SIZE = 1UL << 27U;
 
 static int BenchFetch() {
-	auto dict = estuary::Estuary::Load(FLAGS_file, true, FLAGS_thread);
+	auto mode = FLAGS_copy? estuary::Estuary::COPY_DATA : estuary::Estuary::MONOPOLY;
+	auto dict = estuary::Estuary::Load(FLAGS_file, mode, FLAGS_thread);
 	if (!dict) {
 		std::cout << "fail to load: " << FLAGS_file << std::endl;
 		return -1;

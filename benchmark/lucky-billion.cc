@@ -77,7 +77,8 @@ private:
 };
 
 static int BenchFetch() {
-	auto dict = estuary::LuckyEstuary::Load(FLAGS_file, FLAGS_copy? estuary::LuckyEstuary::COPY_DATA : estuary::LuckyEstuary::MONOPOLY);
+	auto mode = FLAGS_copy? estuary::LuckyEstuary::COPY_DATA : estuary::LuckyEstuary::MONOPOLY;
+	auto dict = estuary::LuckyEstuary::Load(FLAGS_file, mode);
 	if (!dict) {
 		std::cout << "fail to load: " << FLAGS_file << std::endl;
 		return -1;

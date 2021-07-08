@@ -645,9 +645,22 @@ static FORCE_INLINE uint16_t CalcLockMask(unsigned concurrency) {
 	return n*(256U/sizeof(SharedMutex))-1;
 }
 
-Estuary Estuary::Load(const std::string& path, bool monopoly, unsigned concurrency) {
+Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concurrency) {
 	Estuary out;
-	MemMap res(path.c_str(), true, monopoly);
+	MemMap res;
+	switch (policy) {
+		case SHARED:
+			res = MemMap(path.c_str(), true, false);
+			break;
+		case MONOPOLY:
+			res = MemMap(path.c_str(), true, true);
+			break;
+		case COPY_DATA:
+			res = MemMap(path.c_str(), MemMap::load_by_copy);
+			break;
+		default:
+			return out;
+	}
 	if (!res || res.size() < sizeof(Header)) {
 		return out;
 	}
@@ -666,7 +679,7 @@ Estuary Estuary::Load(const std::string& path, bool monopoly, unsigned concurren
 	std::unique_ptr<uint8_t[]> monopoly_extra;
 	auto locks = (Locks*)(res.addr()+locks_off);
 	auto lock_mask = meta->lock_mask;
-	if (monopoly) {
+	if (policy != SHARED) {
 		if (meta->writing) {
 			Logger::Printf("file is not saved correctly: %s\n", path.c_str());
 			return out;
