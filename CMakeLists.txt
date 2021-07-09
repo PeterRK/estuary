@@ -39,8 +39,8 @@ target_link_libraries(estuary pthread)
 file(GLOB test_src
 	test/*.cc
 )
-add_executable(test ${test_src})
-target_link_libraries(test pthread gtest estuary)
+add_executable(estuary-test ${test_src})
+target_link_libraries(estuary-test pthread gtest estuary)
 
 add_executable(lucky-billion benchmark/lucky-billion.cc)
 target_link_libraries(lucky-billion pthread gflags estuary)

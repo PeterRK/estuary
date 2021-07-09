@@ -2,9 +2,9 @@
 Dictionary designed for read-mostly scene.
 
 ![](images/estuary-read.png)
-It can provide up to 100M read QPS on single machine.
+It can provide about 100M read QPS on single machine.
 ![](images/estuary-write.png)
-And up to 250K write QPS in the meantime.
+And more than 2M write QPS without persistence.
 
 Benchmark was done on Tencent cloud and Huawei cloud.
 
