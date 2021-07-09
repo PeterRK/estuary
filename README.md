@@ -6,8 +6,6 @@ It can provide about 100M read QPS on single machine.
 ![](images/estuary-write.png)
 And more than 2M write QPS without persistence.
 
-Benchmark was done on Tencent cloud and Huawei cloud.
-
 ### Key Features
 * fine-grained locking
 * high read performance
@@ -32,10 +30,9 @@ And more than one million write QPS without persistence.
 * work on CPU support little-endian unaligned memory access (X86，ARM，RISC-V...)
 
 
-
 ## Other Read-only Solutions
-* [the one with extreme low space overhead](https://github.com/PeterRK/fastCHD)
-* [the one with extreme read performance](https://github.com/PeterRK/SSHT)
+* [low space overhead](https://github.com/PeterRK/fastCHD)
+* [high read performance](https://github.com/PeterRK/SSHT)
 
 ---
 [【Chinese】](README-CN.md) [【English】](README.md)
