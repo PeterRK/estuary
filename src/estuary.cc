@@ -436,7 +436,9 @@ bool Estuary::_update(Slice key, Slice val) const {
 						return true;
 					} else if (!ent.fit) {
 						if (&ent == curr) {
-							curr->fit = 1;
+							if (fit) {
+								curr->fit = 1;
+							} 
 							return true;
 						}
 						fit = false;
