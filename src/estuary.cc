@@ -201,7 +201,7 @@ static_assert(TAG_BITWIDTH >= 16U && TAG_BITWIDTH <= 32U);
 template <typename Func>
 static FORCE_INLINE void SearchInTable(const Func& func, uint64_t code, Entry* table, const Divisor<uint64_t>& total_entry) {
 	const uint32_t tag = code >> (64U - TAG_BITWIDTH);
-	const auto end =  table + total_entry.value();
+	const auto end = table + total_entry.value();
 	const auto pos = code % total_entry;
 	auto ent = table + pos;
 	for (size_t i = 0; i < total_entry.value(); i++) {
@@ -257,7 +257,7 @@ bool Estuary::_fetch(Slice key, std::string& out) const {
 					snapshot.ent = &ent;
 					snapshot.tag = tag;
 				} else {
-					out.assign(reinterpret_cast<const char*>(RcVal(BLK(e.blk))), snapshot.val_len);
+					out.assign((const char*)RcVal(BLK(e.blk)), snapshot.val_len);
 				}
 				return true;
 			}
@@ -277,7 +277,7 @@ bool Estuary::_fetch(Slice key, std::string& out) const {
 			if (UNLIKELY(out.capacity() < snapshot.val_len)) {
 				continue;
 			}
-			out.assign(reinterpret_cast<const char*>(RcVal(BLK(e.blk))), snapshot.val_len);
+			out.assign((const char*)RcVal(BLK(e.blk)), snapshot.val_len);
 			return true;
 		}
 		return false;
@@ -438,7 +438,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 						if (&ent == curr) {
 							if (fit) {
 								curr->fit = 1;
-							} 
+							}
 							return true;
 						}
 						fit = false;
@@ -642,7 +642,7 @@ static FORCE_INLINE uint16_t CalcLockMask(unsigned concurrency) {
 	}
 	auto n = 1U << (32U-__builtin_clz(concurrency-1));
 	assert(n > 0);
-	static_assert(256U%sizeof(SharedMutex) == 0);
+	static_assert(256U%sizeof(SharedMutex) == 0 && sizeof(SharedMutex) >= 2U);
 	return n*(256U/sizeof(SharedMutex))-1;
 }
 
@@ -668,6 +668,9 @@ Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concu
 	auto meta = (Header*)res.addr();
 	auto locks_off = sizeof(Header);
 	auto table_off = locks_off + LocksSize(meta->lock_mask);
+	if (table_off % sizeof(uint64_t) != 0) {
+		return out;
+	}
 	auto data_off = table_off + meta->total_entry * sizeof(Entry);
 	if (meta->magic != MAGIC || (meta->lock_mask & (meta->lock_mask+1U)) != 0
 		|| meta->total_entry < MIN_ENTRY || meta->total_entry > MAX_ENTRY
