@@ -214,25 +214,27 @@ static FORCE_INLINE void SearchInTable(const Func& func, uint64_t code, Entry* t
 	}
 }
 
+//FIXME: have a very low probability of false miss
 bool Estuary::fetch(Slice key, std::string& out) const {
 	if (m_meta == nullptr || key.ptr == nullptr || key.len == 0 || key.len > max_key_len()) {
 		return false;
 	}
-	auto done = _fetch(key, out);
+	auto ret = _fetch(key, out);
 #ifndef DISABLE_FETCH_RETRY
-	//entry can be moved at most twice during sweeping, witch may cause false missing
-	//NOTICE: it's not absolutely safe
-	if (!done && UNLIKELY(LoadRelaxed(*m_sweeping))) {
-		done = _fetch(key, out);
-		if (!done && UNLIKELY(LoadRelaxed(*m_sweeping))) {
-			done = _fetch(key, out);
+	//entry can be moved at most twice during sweeping, witch may cause false miss
+	//NOTICE: That's not completely avoided.
+	if (ret < 0 || (ret > 0 && UNLIKELY(LoadRelaxed(*m_sweeping)))) {
+		ret = _fetch(key, out);
+		if (ret < 0 || (ret > 0 && UNLIKELY(LoadRelaxed(*m_sweeping)))) {
+			ret = _fetch(key, out);
 		}
 	}
 #endif
-	return done;
+	return ret == 0;
 }
 
-bool Estuary::_fetch(Slice key, std::string& out) const {
+//0=found, 1=miss, -1=retry
+int Estuary::_fetch(Slice key, std::string& out) const {
 	out.clear();
 	auto code = Hash(key.ptr, key.len, m_const.seed);
 	struct {
@@ -265,7 +267,7 @@ bool Estuary::_fetch(Slice key, std::string& out) const {
 		return false;
 	}, code, (Entry*)m_table, m_const.total_entry);
 	if (snapshot.ent == nullptr) {
-		return snapshot.val_len <= MAX_VAL_LEN;
+		return snapshot.val_len > MAX_VAL_LEN? 1 : 0;
 	}
 	//target entry is found, it never move without sweeping
 	for (Entry e = CLEAN_ENTRY;;) {
@@ -275,12 +277,12 @@ bool Estuary::_fetch(Slice key, std::string& out) const {
 		if (LIKELY(!IsEmpty(e) && e.tag == snapshot.tag && KeyMatch(key, BLK(e.blk)))) {
 			snapshot.val_len = Rc(BLK(e.blk)).vlen;
 			if (UNLIKELY(out.capacity() < snapshot.val_len)) {
-				continue;
+				continue;  //key is unchanged, but value is modified
 			}
 			out.assign((const char*)RcVal(BLK(e.blk)), snapshot.val_len);
-			return true;
+			return 0;
 		}
-		return false;
+		return -1;
 	}
 }
 
