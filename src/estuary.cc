@@ -31,7 +31,7 @@ struct Estuary::Meta {
 	uint32_t kv_limit = 0;
 	uint32_t seed = 0;
 	bool writing = false;
-	bool sweeping = false;
+	uint8_t _pad = 0;
 	uint16_t reference = 0;
 	size_t item = 0;
 	size_t total_entry = 0;
@@ -222,9 +222,9 @@ bool Estuary::fetch(Slice key, std::string& out) const {
 #ifndef DISABLE_FETCH_RETRY
 	//entry can be moved at most twice during sweeping, witch may cause false missing
 	//NOTICE: it's not absolutely safe
-	if (!done && UNLIKELY(LoadRelaxed(m_meta->sweeping))) {
+	if (!done && UNLIKELY(LoadRelaxed(*m_sweeping))) {
 		done = _fetch(key, out);
-		if (!done && UNLIKELY(LoadRelaxed(m_meta->sweeping))) {
+		if (!done && UNLIKELY(LoadRelaxed(*m_sweeping))) {
 			done = _fetch(key, out);
 		}
 	}
@@ -450,7 +450,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 		};
 
 		//entry can be moved twice at most
-		m_meta->sweeping = true;
+		*m_sweeping = true;
 		MemoryBarrier();
 		if (upstairs(false)) {
 			upstairs(true);
@@ -474,7 +474,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 
 		//keep sweeping status longer
 		MemoryBarrier();
-		m_meta->sweeping = false;
+		*m_sweeping = false;
 
 		ConsistencyAssert(item = m_meta->item);
 		m_meta->clean_entry = total_entry.value() - item - dirty;
@@ -667,10 +667,8 @@ Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concu
 	}
 	auto meta = (Header*)res.addr();
 	auto locks_off = sizeof(Header);
-	auto table_off = locks_off + LocksSize(meta->lock_mask);
-	if (table_off % sizeof(uint64_t) != 0) {
-		return out;
-	}
+	auto sweeping_off = locks_off + LocksSize(meta->lock_mask);
+	auto table_off = (sweeping_off & ~(sizeof(uintptr_t)-1ULL)) + sizeof(uintptr_t);
 	auto data_off = table_off + meta->total_entry * sizeof(Entry);
 	if (meta->magic != MAGIC || (meta->lock_mask & (meta->lock_mask+1U)) != 0
 		|| meta->total_entry < MIN_ENTRY || meta->total_entry > MAX_ENTRY
@@ -682,6 +680,7 @@ Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concu
 
 	std::unique_ptr<uint8_t[]> monopoly_extra;
 	auto locks = (Locks*)(res.addr()+locks_off);
+	auto sweeping = (bool*)(res.addr()+sweeping_off);
 	auto lock_mask = meta->lock_mask;
 	if (policy != SHARED) {
 		if (meta->writing) {
@@ -691,12 +690,15 @@ Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concu
 		if (concurrency != 0) {
 			lock_mask = CalcLockMask(concurrency);
 		}
-		monopoly_extra = std::make_unique<uint8_t[]>(LocksSize(lock_mask));
+		auto locks_size = LocksSize(lock_mask);
+		monopoly_extra = std::make_unique<uint8_t[]>(locks_size + sizeof(bool));
 		locks = (Locks*)monopoly_extra.get();
 		if (!InitLocks(locks, lock_mask, false)) {
 			Logger::Printf("fail to reset locks in: %s\n", path.c_str());
 			return out;
 		}
+		sweeping = (bool*)(monopoly_extra.get()+locks_size);
+		*sweeping = false;
 		meta->reference = UINT16_MAX;
 	} else if (AddRelaxed(meta->reference, (uint16_t)1U) >= UINT16_MAX / 2) {
 		SubRelaxed(meta->reference, (uint16_t)1U);
@@ -706,6 +708,7 @@ Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concu
 
 	out.m_meta = meta;
 	out.m_locks = locks;
+	out.m_sweeping = sweeping;
 	out.m_table = (uint64_t*)(res.addr()+table_off);
 	out.m_data = res.addr()+data_off;
 	out.m_const.lock_mask = lock_mask;
@@ -785,6 +788,8 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 	size_t size = sizeof(header);
 	const auto locks_off = size;
 	size += LocksSize(header.lock_mask);
+	const auto sweeping_off = size;
+	size = (size & ~(sizeof(uintptr_t)-1ULL)) + sizeof(uintptr_t);
 	const auto table_off = size;
 	size += header.total_entry * sizeof(Entry);
 	const auto data_off = size;
@@ -796,6 +801,7 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 	}
 	auto meta = (Header*)res.addr();
 	auto locks = (Locks*)(res.addr()+locks_off);
+	memset(res.addr()+sweeping_off, 0, table_off-sweeping_off);
 	auto table = (uint64_t*)(res.addr()+table_off);
 	auto data = res.addr() + data_off;
 
