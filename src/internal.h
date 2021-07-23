@@ -20,6 +20,7 @@
 #ifndef ESTUARY_INTERNAL_H
 #define ESTUARY_INTERNAL_H
 
+#include <cassert>
 #include <cstdint>
 #include <chrono>
 #include <exception>
@@ -51,6 +52,8 @@ static FORCE_INLINE void ConsistencyAssert(bool condition) {
 	if (UNLIKELY(!condition)) {
 		throw DataException();
 	}
+#else
+	assert(condition);
 #endif
 }
 
