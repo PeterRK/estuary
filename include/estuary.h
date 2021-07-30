@@ -101,6 +101,7 @@ private:
 		Divisor<uint64_t> total_entry;
 	} m_const;
 	Locks* m_locks = nullptr;
+	bool* m_sweeping = nullptr;
 	uint64_t* m_table = nullptr;
 	uint8_t* m_data = nullptr;
 	std::unique_ptr<uint8_t[]> m_monopoly_extra;
@@ -108,7 +109,7 @@ private:
 	Estuary(const Estuary&) noexcept = delete;
 	Estuary& operator=(const Estuary&) noexcept = delete;
 
-	bool _fetch(Slice key, std::string& out) const;
+	int _fetch(Slice key, std::string& out) const;
 	bool _erase(Slice key) const;
 	bool _update(Slice key, Slice val) const;
 };
