@@ -32,6 +32,7 @@ DEFINE_uint32(thread, 4, "number of worker threads");
 DEFINE_bool(build, false, "build instead of fetching");
 DEFINE_bool(copy, false, "load by copy");
 DEFINE_bool(disable_write, false, "disable write");
+DEFINE_bool(disable_pipeline, false, "disable pipeline");
 
 static constexpr size_t SIZE = 1UL << 27U;
 
@@ -79,12 +80,35 @@ static int BenchFetch() {
 	for (unsigned i = 0; i < n; i++) {
 		workers.emplace_back([&dict, loop](uint64_t* res){
 			XorShift128Plus rnd;
-			uint64_t key = 0;
 			std::string val;
 			auto start = std::chrono::steady_clock::now();
-			for (unsigned i = 0; i < loop; i++) {
-				key = rnd() % SIZE;
-				dict.fetch({(const uint8_t*)&key, sizeof(uint64_t)}, val);
+			if (FLAGS_disable_pipeline || loop < 2) {
+				for (unsigned i = 0; i < loop; i++) {
+					uint64_t key = rnd() % SIZE;
+					dict.fetch({(const uint8_t*)&key, sizeof(uint64_t)}, val);
+				}
+			} else {
+				struct Context {
+					uint64_t key;
+					uint64_t code;
+					Context(XorShift128Plus& rnd, const estuary::Estuary& dict) noexcept {
+						key = rnd() % SIZE;
+						code = dict.touch({(const uint8_t*)&key, sizeof(uint64_t)});
+					}
+				};
+				Context a(rnd, dict);
+				Context b(rnd, dict);
+				dict.touch(a.code);
+				for (unsigned i = 2; i < loop; i++) {
+					Context c(rnd, dict);
+					dict.touch(b.code);
+					dict.fetch(a.code, {(const uint8_t*)&a.key, sizeof(uint64_t)}, val);
+					a = b;
+					b = c;
+				}
+				dict.touch(b.code);
+				dict.fetch(a.code, {(const uint8_t*)&a.key, sizeof(uint64_t)}, val);
+				dict.fetch(b.code, {(const uint8_t*)&b.key, sizeof(uint64_t)}, val);
 			}
 			auto end = std::chrono::steady_clock::now();
 			*res = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();

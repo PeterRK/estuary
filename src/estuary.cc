@@ -214,19 +214,50 @@ static FORCE_INLINE void SearchInTable(const Func& func, uint64_t code, Entry* t
 	}
 }
 
-//FIXME: have a very low probability of false miss
 bool Estuary::fetch(Slice key, std::string& out) const {
-	if (m_meta == nullptr || key.ptr == nullptr || key.len == 0 || key.len > max_key_len()) {
+	auto code = Hash(key.ptr, key.len, m_const.seed);
+	return fetch(code, key, out);
+}
+
+uint64_t Estuary::touch(Slice key) const noexcept {
+	auto code = Hash(key.ptr, key.len, m_const.seed);
+	if (m_meta != nullptr) {
+		const auto pos = code % m_const.total_entry;
+		PrefetchForFuture(m_table + pos);
+	}
+	return code;
+}
+
+void Estuary::touch(uint64_t code) const noexcept {
+	if (m_meta == nullptr) {
+		return;
+	}
+	SearchInTable([this](Entry& ent, uint32_t tag)->bool {
+		auto e = ent;
+		if (IsEmpty(e)) {
+			return IsClean(e);
+		} else if (e.tag == tag) {
+			PrefetchForFuture(BLK(e.blk));
+			return true;
+		}
+		return false;
+	}, code, (Entry*)m_table, m_const.total_entry);
+}
+
+//FIXME: have a very low probability of false miss
+bool Estuary::fetch(uint64_t code, Slice key, std::string& out) const {
+	if (m_meta == nullptr) {
 		return false;
 	}
-	auto ret = _fetch(key, out);
+	out.clear();
+	auto ret = _fetch(code, key, out);
 #ifndef DISABLE_FETCH_RETRY
 	//entry can be moved at most twice during sweeping, witch may cause false miss
 	//NOTICE: That's not completely avoided.
 	if (ret < 0 || (ret > 0 && UNLIKELY(LoadRelaxed(*m_sweeping)))) {
-		ret = _fetch(key, out);
+		ret = _fetch(code, key, out);
 		if (ret < 0 || (ret > 0 && UNLIKELY(LoadRelaxed(*m_sweeping)))) {
-			ret = _fetch(key, out);
+			ret = _fetch(code, key, out);
 		}
 	}
 #endif
@@ -234,9 +265,7 @@ bool Estuary::fetch(Slice key, std::string& out) const {
 }
 
 //0=found, 1=miss, -1=retry
-int Estuary::_fetch(Slice key, std::string& out) const {
-	out.clear();
-	auto code = Hash(key.ptr, key.len, m_const.seed);
+int Estuary::_fetch(uint64_t code, Slice key, std::string& out) const {
 	struct {
 		uint32_t tag = 0;
 		uint32_t val_len = UINT32_MAX;
@@ -251,15 +280,16 @@ int Estuary::_fetch(Slice key, std::string& out) const {
 			PrefetchForNext(BLK(e.blk));
 			ReadLock lk(GET_LOCK(tag));
 			e.load_relaxed(ent);
+			auto block = BLK(e.blk);
 			if (UNLIKELY(IsEmpty(e))) {
 				return IsClean(e);
-			} else if (LIKELY(e.tag == tag && KeyMatch(key, BLK(e.blk)))) {
-				snapshot.val_len = Rc(BLK(e.blk)).vlen;
+			} else if (LIKELY(e.tag == tag && KeyMatch(key, block))) {
+				snapshot.val_len = Rc(block).vlen;
 				if (out.capacity() < snapshot.val_len) {
 					snapshot.ent = &ent;
 					snapshot.tag = tag;
 				} else {
-					out.assign((const char*)RcVal(BLK(e.blk)), snapshot.val_len);
+					out.assign((const char*)RcVal(block), snapshot.val_len);
 				}
 				return true;
 			}
@@ -274,12 +304,13 @@ int Estuary::_fetch(Slice key, std::string& out) const {
 		out.reserve(snapshot.val_len);
 		ReadLock lk(GET_LOCK(snapshot.tag));
 		e.load_relaxed(*snapshot.ent);
-		if (LIKELY(!IsEmpty(e) && e.tag == snapshot.tag && KeyMatch(key, BLK(e.blk)))) {
-			snapshot.val_len = Rc(BLK(e.blk)).vlen;
+		auto block = BLK(e.blk);
+		if (LIKELY(!IsEmpty(e) && e.tag == snapshot.tag && KeyMatch(key, block))) {
+			snapshot.val_len = Rc(block).vlen;
 			if (UNLIKELY(out.capacity() < snapshot.val_len)) {
 				continue;  //key is unchanged, but value is modified
 			}
-			out.assign((const char*)RcVal(BLK(e.blk)), snapshot.val_len);
+			out.assign((const char*)RcVal(block), snapshot.val_len);
 			return 0;
 		}
 		return -1;

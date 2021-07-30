@@ -38,6 +38,11 @@ public:
 	bool erase(Slice key) const;
 	bool update(Slice key, Slice val) const;
 
+	//Pipeline API
+	uint64_t touch(Slice key) const noexcept;
+	void touch(uint64_t code) const noexcept;
+	bool fetch(uint64_t code, Slice key, std::string& out) const;
+
 	bool operator!() const noexcept { return m_meta == nullptr; }
 	unsigned max_key_len() const noexcept { return m_const.max_key_len; }
 	unsigned max_val_len() const noexcept { return m_const.max_val_len; }
@@ -109,7 +114,7 @@ private:
 	Estuary(const Estuary&) noexcept = delete;
 	Estuary& operator=(const Estuary&) noexcept = delete;
 
-	int _fetch(Slice key, std::string& out) const;
+	int _fetch(uint64_t code, Slice key, std::string& out) const;
 	bool _erase(Slice key) const;
 	bool _update(Slice key, Slice val) const;
 };
