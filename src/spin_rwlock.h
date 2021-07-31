@@ -42,7 +42,8 @@ public:
 	void write_unlock() noexcept;
 
 	//using state_t = uintptr_t;
-	using state_t = uint16_t;
+	using state_t = uint32_t;
+	static_assert(sizeof(state_t) <= sizeof(uintptr_t));
 
 private:
 	state_t m_state = 0;

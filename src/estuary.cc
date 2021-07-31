@@ -675,8 +675,8 @@ static FORCE_INLINE uint16_t CalcLockMask(unsigned concurrency) {
 	}
 	auto n = 1U << (32U-__builtin_clz(concurrency-1));
 	assert(n > 0);
-	static_assert(256U%sizeof(SharedMutex) == 0 && sizeof(SharedMutex) >= 2U);
-	return n*(256U/sizeof(SharedMutex))-1;
+	static_assert(512U%sizeof(SharedMutex) == 0 && sizeof(SharedMutex) >= 4);
+	return n*(512U/sizeof(SharedMutex))-1;
 }
 
 Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concurrency) {
