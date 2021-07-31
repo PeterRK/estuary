@@ -41,6 +41,7 @@ public:
 		}
 #endif
 		sched_yield();
+		reset();
 	}
 	void reset() noexcept {
 		m_cnt = 1;

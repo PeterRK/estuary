@@ -24,6 +24,72 @@
 
 namespace estuary {
 
+#ifndef USE_PTHREAD_SPIN_LOCK
+struct MicroMutex {
+	SpinRWLock core;
+	static constexpr uint8_t TYPE = 0;
+
+	static int Init(MicroMutex* mtx, int) {
+		mtx->core.init();
+		return 0;
+	}
+	static int LockShared(MicroMutex* mtx) {
+		mtx->core.read_lock();
+		return 0;
+	}
+	static int UnlockShared(MicroMutex* mtx) {
+		mtx->core.read_unlock();
+		return 0;
+	}
+	static int Lock(MicroMutex* mtx) {
+		mtx->core.write_lock();
+		return 0;
+	}
+	static int Unlock(MicroMutex* mtx) {
+		mtx->core.write_unlock();
+		return 0;
+	}
+};
+
+struct _ReadLock {
+	using LockType = MicroMutex;
+	static constexpr auto Lock = MicroMutex::LockShared;
+	static constexpr auto Unlock = MicroMutex::UnlockShared;
+};
+using ReadLock = LockGuard<_ReadLock>;
+
+struct _WriteLock {
+	using LockType = MicroMutex;
+	static constexpr auto Lock = MicroMutex::Lock;
+	static constexpr auto Unlock = MicroMutex::Unlock;
+};
+using WriteLock = LockGuard<_WriteLock>;
+
+#else
+struct MicroMutex {
+	pthread_spinlock_t core;
+	static constexpr uint8_t TYPE = 1;
+
+	static int Init(MicroMutex* mtx, int mode) {
+		return pthread_spin_init(&mtx->core, mode);
+	}
+	static int Lock(MicroMutex* mtx) {
+		return pthread_spin_lock(&mtx->core);
+	}
+	static int Unlock(MicroMutex* mtx) {
+		return pthread_spin_unlock(&mtx->core);
+	}
+};
+
+struct _MicroLock {
+	using LockType = MicroMutex;
+	static constexpr auto Lock = MicroMutex::Lock;
+	static constexpr auto Unlock = MicroMutex::Unlock;
+};
+using ReadLock = LockGuard<_MicroLock>;
+using WriteLock = LockGuard<_MicroLock>;
+#endif
+
 static constexpr uint16_t MAGIC = 0xE999;
 struct Estuary::Meta {
 	uint16_t magic = MAGIC;
@@ -31,7 +97,7 @@ struct Estuary::Meta {
 	uint32_t kv_limit = 0;
 	uint32_t seed = 0;
 	bool writing = false;
-	uint8_t _pad = 0;
+	uint8_t lock_type = MicroMutex::TYPE;
 	uint16_t reference = 0;
 	size_t item = 0;
 	size_t total_entry = 0;
@@ -46,43 +112,9 @@ size_t Estuary::item() const noexcept {
 	return m_meta == nullptr? 0 : m_meta->item;
 }
 
-struct SharedMutex {
-	SpinRWLock core;
-	static int LockShared(SharedMutex* mtx) {
-		mtx->core.read_lock();
-		return 0;
-	}
-	static int UnlockShared(SharedMutex* mtx) {
-		mtx->core.read_unlock();
-		return 0;
-	}
-	static int Lock(SharedMutex* mtx) {
-		mtx->core.write_lock();
-		return 0;
-	}
-	static int Unlock(SharedMutex* mtx) {
-		mtx->core.write_unlock();
-		return 0;
-	}
-};
-
-struct _ReadLock {
-	using LockType = SharedMutex;
-	static constexpr auto Lock = SharedMutex::LockShared;
-	static constexpr auto Unlock = SharedMutex::UnlockShared;
-};
-using ReadLock = LockGuard<_ReadLock>;
-
-struct _WriteLock {
-	using LockType = SharedMutex;
-	static constexpr auto Lock = SharedMutex::Lock;
-	static constexpr auto Unlock = SharedMutex::Unlock;
-};
-using WriteLock = LockGuard<_WriteLock>;
-
 struct Estuary::Locks {
 	pthread_mutex_t master;
-	SharedMutex pool[0];
+	MicroMutex pool[0];
 };
 
 static constexpr size_t DATA_BLOCK_SIZE = 8;
@@ -324,7 +356,7 @@ static FORCE_INLINE RecordMark MarkForEmpty(size_t bcnt) {
 	return mark;
 }
 
-static FORCE_INLINE void UpdateEntry(SharedMutex* lock, Entry& ent, const Entry val) {
+static FORCE_INLINE void UpdateEntry(MicroMutex* lock, Entry& ent, const Entry val) {
 	WriteLock _(lock);
 	ent = val;
 }
@@ -637,16 +669,16 @@ bool Estuary::_update(Slice key, Slice val) const {
 }
 
 static bool InitLocks(Estuary::Locks* locks, uint16_t mask, bool shared=true) {
-	const int pshared = shared? PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
+	const int mode = shared? PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
 	pthread_mutexattr_t mutexattr;
 	if (pthread_mutexattr_init(&mutexattr) != 0
-		|| pthread_mutexattr_setpshared(&mutexattr, pshared) != 0
+		|| pthread_mutexattr_setpshared(&mutexattr, mode) != 0
 		|| pthread_mutex_init(&locks->master, &mutexattr) != 0) {
 		//pthread_mutexattr_destroy is unnecessary
 		return false;
 	}
 	for (unsigned i = 0; i <= mask; i++) {
-		locks->pool[i].core.init();
+		MicroMutex::Init(&locks->pool[i], mode);
 	}
 	return true;
 }
@@ -664,7 +696,7 @@ Estuary::~Estuary() noexcept {
 }
 
 static FORCE_INLINE size_t LocksSize(uint16_t mask) {
-	return sizeof(Estuary::Locks) + (mask+1U) * sizeof(SharedMutex);
+	return sizeof(Estuary::Locks) + (mask+1U) * sizeof(MicroMutex);
 }
 
 static FORCE_INLINE uint16_t CalcLockMask(unsigned concurrency) {
@@ -675,8 +707,8 @@ static FORCE_INLINE uint16_t CalcLockMask(unsigned concurrency) {
 	}
 	auto n = 1U << (32U-__builtin_clz(concurrency-1));
 	assert(n > 0);
-	static_assert(512U%sizeof(SharedMutex) == 0 && sizeof(SharedMutex) >= 4);
-	return n*(512U/sizeof(SharedMutex))-1;
+	static_assert(512U%sizeof(MicroMutex) == 0 && sizeof(MicroMutex) >= 4);
+	return n*(512U/sizeof(MicroMutex)) - 1;
 }
 
 Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concurrency) {
@@ -703,7 +735,8 @@ Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concu
 	auto sweeping_off = locks_off + LocksSize(meta->lock_mask);
 	auto table_off = (sweeping_off & ~(sizeof(uintptr_t)-1ULL)) + sizeof(uintptr_t);
 	auto data_off = table_off + meta->total_entry * sizeof(Entry);
-	if (meta->magic != MAGIC || (meta->lock_mask & (meta->lock_mask+1U)) != 0
+	if (meta->magic != MAGIC || meta->lock_type != MicroMutex::TYPE
+		|| (meta->lock_mask & (meta->lock_mask+1U)) != 0
 		|| meta->total_entry < MIN_ENTRY || meta->total_entry > MAX_ENTRY
 		|| meta->total_block < meta->total_entry || meta->total_block > DATA_BLOCK_LIMIT
 		|| res.size() < data_off + meta->total_block * DATA_BLOCK_SIZE) {
@@ -768,7 +801,8 @@ bool Estuary::ResetLocks(const std::string& path) {
 	}
 	auto meta = (Header*)res.addr();
 	auto locks_off = sizeof(Header);
-	if (meta->magic != MAGIC || (meta->lock_mask & (meta->lock_mask+1U)) != 0
+	if (meta->magic != MAGIC || meta->lock_type != MicroMutex::TYPE
+		|| (meta->lock_mask & (meta->lock_mask+1U)) != 0
 		|| res.size() < locks_off + LocksSize(meta->lock_mask)) {
 		Logger::Printf("broken file: %s\n", path.c_str());
 		return false;
