@@ -739,7 +739,6 @@ Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concu
 		return out;
 	}
 
-	out.m_meta = meta;
 	out.m_locks = locks;
 	out.m_sweeping = sweeping;
 	out.m_table = (uint64_t*)(res.addr()+table_off);
@@ -757,6 +756,7 @@ Estuary Estuary::Load(const std::string& path, LoadPolicy policy, unsigned concu
 	}
 	out.m_monopoly_extra = std::move(monopoly_extra);
 	out.m_resource = std::move(res);
+	out.m_meta = meta;
 	return out;
 }
 
