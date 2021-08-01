@@ -293,9 +293,10 @@ bool Estuary::fetch(uint64_t code, Slice key, std::string& out) const {
 	//NOTICE: That's not completely avoided.
 	if (ret < 0 || (ret > 0 && UNLIKELY(LoadRelaxed(*m_sweeping)))) {
 		ret = _fetch(code, key, out);
-		if (ret < 0 || (ret > 0 && UNLIKELY(LoadRelaxed(*m_sweeping)))) {
-			ret = _fetch(code, key, out);
+		if (ret == 0) {
+			return true;
 		}
+		ret = _fetch(code, key, out);
 	}
 #endif
 	return ret == 0;
@@ -543,6 +544,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 		}
 
 		//keep sweeping status longer
+		sched_yield();
 		MemoryBarrier();
 		*m_sweeping = false;
 
