@@ -100,4 +100,32 @@ void SpinRWLock::write_unlock() noexcept {
 	assert((state & WRITING) != 0);
 }
 
+
+void UnfairSpinRWLock::read_lock() noexcept {
+	NanoSleeper sleeper;
+	while (__atomic_fetch_add(&m_state, 1, __ATOMIC_ACQ_REL) < 0) {
+		__atomic_fetch_sub(&m_state, 1, __ATOMIC_RELAXED);
+		sleeper.sleep();
+	}
+}
+
+void UnfairSpinRWLock::read_unlock() noexcept {
+	__atomic_fetch_sub(&m_state, 1, __ATOMIC_RELEASE);
+}
+
+void UnfairSpinRWLock::write_lock() noexcept {
+	NanoSleeper sleeper;
+	while (true) {
+		intptr_t state = 0;
+		if (__atomic_compare_exchange_n(&m_state, &state, INTPTR_MIN, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+			return;
+		}
+		sleeper.sleep();
+	}
+}
+
+void UnfairSpinRWLock::write_unlock() noexcept {
+	__atomic_fetch_sub(&m_state, INTPTR_MIN, __ATOMIC_RELEASE);
+}
+
 } //estuary

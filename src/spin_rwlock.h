@@ -43,10 +43,30 @@ public:
 
 	//using state_t = uintptr_t;
 	using state_t = uint32_t;
-	static_assert(sizeof(state_t) <= sizeof(uintptr_t));
 
 private:
 	state_t m_state = 0;
+};
+
+class UnfairSpinRWLock {
+public:
+	UnfairSpinRWLock() = default;
+	UnfairSpinRWLock(const UnfairSpinRWLock&) = delete;
+	UnfairSpinRWLock(UnfairSpinRWLock&&) = delete;
+	UnfairSpinRWLock& operator=(const UnfairSpinRWLock&) = delete;
+	UnfairSpinRWLock& operator=(UnfairSpinRWLock&&) = delete;
+
+	void init() noexcept {
+		m_state = 0;
+	}
+
+	void read_lock() noexcept;
+	void read_unlock() noexcept;
+	void write_lock() noexcept;
+	void write_unlock() noexcept;
+
+private:
+	intptr_t m_state = 0;
 };
 
 } //estuary

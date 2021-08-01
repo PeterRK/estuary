@@ -26,8 +26,13 @@ namespace estuary {
 
 #ifndef USE_PTHREAD_SPIN_LOCK
 struct MicroMutex {
+#ifndef USE_UNFAIR_SPIN_LOCK
 	SpinRWLock core;
 	static constexpr uint8_t TYPE = 0;
+#else
+	UnfairSpinRWLock core;
+	static constexpr uint8_t TYPE = 2;
+#endif
 
 	static int Init(MicroMutex* mtx, int) {
 		mtx->core.init();
