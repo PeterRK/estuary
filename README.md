@@ -2,7 +2,7 @@
 Dictionary designed for read-mostly scene.
 
 ![](images/estuary-read.png)
-It can provide about 100M read QPS on single machine.
+It can provide 200M read QPS on single machine.
 ![](images/estuary-write.png)
 And more than 2M write QPS without persistence.
 

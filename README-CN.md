@@ -2,7 +2,7 @@
 专为读多写少的场景优化的高性能KV字典。
 
 ![](images/estuary-read.png)
-单机可提供一亿左右QPS的读取性能（图中单位为百万）。
+单机可提供两亿QPS的读取性能（图中单位为百万）。
 ![](images/estuary-write.png)
 在放弃落盘的情况下写入QPS可以达两百万以上。
 
