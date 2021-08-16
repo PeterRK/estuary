@@ -95,7 +95,7 @@ static int BenchFetch() {
 	uint64_t write_ops = 0;
 	uint64_t write_ns = 0;
 	bool quit = FLAGS_disable_write;
-	std::thread writer([batch, &dict, &quit, &write_ops, &write_ns](){
+	std::thread writer([&dict, &quit, &write_ops, &write_ns](){
 		RandEmbGenerator writer(batch, BILLION);
 		while (!quit) {
 			auto start = std::chrono::steady_clock::now();
@@ -110,7 +110,7 @@ static int BenchFetch() {
 	workers.reserve(n);
 	std::vector<uint64_t> results(n);
 	for (unsigned i = 0; i < n; i++) {
-		workers.emplace_back([&dict, loop, batch](uint64_t* res){
+		workers.emplace_back([&dict](uint64_t* res){
 			std::vector<uint64_t> key_vec(batch);
 			auto out = std::make_unique<uint8_t[]>(EmbeddingGenerator::VALUE_SIZE*batch);
 

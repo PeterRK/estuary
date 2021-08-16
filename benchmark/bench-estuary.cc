@@ -78,7 +78,7 @@ static int BenchFetch() {
 	workers.reserve(n);
 	std::vector<uint64_t> results(n);
 	for (unsigned i = 0; i < n; i++) {
-		workers.emplace_back([&dict, loop](uint64_t* res){
+		workers.emplace_back([&dict](uint64_t* res){
 			XorShift128Plus rnd;
 			std::string val;
 			auto start = std::chrono::steady_clock::now();

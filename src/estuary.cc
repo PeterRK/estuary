@@ -548,7 +548,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 		MemoryBarrier();
 		*m_sweeping = false;
 
-		ConsistencyAssert(item = m_meta->item);
+		ConsistencyAssert(item == m_meta->item);
 		m_meta->clean_entry = total_entry.value() - item - dirty;
 	}
 

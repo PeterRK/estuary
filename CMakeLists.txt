@@ -24,6 +24,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_SKIP_BUILD_RPATH TRUE)
 set(CMAKE_EXE_LINKER_FLAGS -Wl,--rpath=.)
 
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -Wall")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-unroll-loops -fno-stack-protector")
 
 include_directories(${CMAKE_SOURCE_DIR}/include)

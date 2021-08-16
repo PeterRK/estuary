@@ -52,10 +52,11 @@ public:
 
 	Estuary() = default;
 	Estuary(Estuary&& other) noexcept
-		: m_resource(std::move(other.m_resource)), m_const(other.m_const),
-		  m_meta(other.m_meta), m_locks(other.m_locks), m_table(other.m_table), m_data(other.m_data),
+		: m_resource(std::move(other.m_resource)), m_meta(other.m_meta), m_const(other.m_const),
+		  m_locks(other.m_locks), m_sweeping(other.m_sweeping), m_table(other.m_table), m_data(other.m_data),
 		  m_monopoly_extra(std::move(other.m_monopoly_extra)) {
 		other.m_meta = nullptr;
+		other.m_sweeping = nullptr;
 		other.m_locks = nullptr;
 		other.m_table = nullptr;
 		other.m_data = nullptr;

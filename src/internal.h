@@ -94,7 +94,7 @@ struct _MutexLock {
 };
 using MutexLock = LockGuard<_MutexLock>;
 
-static uint64_t GetSeed() {
+static inline uint64_t GetSeed() {
 	//return 1596176575357415943ULL;
 	return std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::system_clock::now().time_since_epoch()).count();
