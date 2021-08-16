@@ -24,16 +24,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_SKIP_BUILD_RPATH TRUE)
 set(CMAKE_EXE_LINKER_FLAGS -Wl,--rpath=.)
 
-option(MODERN_CPU_ONLY "build for modern CPU only" ON)
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-unroll-loops -fno-stack-protector")
-if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
-	if (MODERN_CPU_ONLY)
-		message("NOTICE: build for modern CPU not older than skylake")
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=skylake")
-		#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mbmi2")
-	endif()
-endif()
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 

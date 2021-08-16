@@ -96,19 +96,20 @@ private:
 	static Logger* s_instance;
 };
 
-//Granlund-Montgomery
+//Robison
 template <typename Word>
 class Divisor final {
 private:
-	static_assert(std::is_same<Word,uint8_t>::value | std::is_same<Word,uint16_t>::value
+	static_assert(std::is_same<Word,uint8_t>::value || std::is_same<Word,uint16_t>::value
 				  || std::is_same<Word,uint32_t>::value || std::is_same<Word,uint64_t>::value, "");
 	Word m_val = 0;
 #ifndef DISABLE_SOFT_DIVIDE
 	Word m_fac = 0;
+	Word m_tip = 0;
 	unsigned m_sft = 0;
 	using DoubleWord = typename std::conditional<std::is_same<Word,uint8_t>::value, uint16_t,
 		typename std::conditional<std::is_same<Word,uint16_t>::value, uint32_t,
-			typename std::conditional<std::is_same<Word,uint32_t>::value, uint64_t, __uint128_t>::type>::type>::type;
+		typename std::conditional<std::is_same<Word,uint32_t>::value, uint64_t, __uint128_t>::type>::type>::type;
 	static constexpr unsigned BITWIDTH = sizeof(Word)*8;
 #endif
 
@@ -120,18 +121,31 @@ public:
 	Divisor operator=(Word n) noexcept {
 		m_val = n;
 #ifndef DISABLE_SOFT_DIVIDE
+		m_fac = 0;
+		m_sft = 0;
+		m_tip = 0;
 		if (n == 0) {
-			m_fac = 0;
-			m_sft = 0;
+			return *this;
+		}
+		m_sft = BITWIDTH - 1;
+		constexpr Word one = 1;
+		auto m  = one << m_sft;
+		for (; m > n; m >>= 1U) {
+			m_sft--;
+		}
+		constexpr Word zero = 0;
+		m_fac = ~zero;
+		m_tip = ~zero;
+		if (m == n) {
+			return *this;
+		}
+		m_fac = (((DoubleWord)m) << BITWIDTH) / n;
+		Word r = m_fac * n + n;
+		if (r <= m) {
+			m_fac += 1;
+			m_tip = 0;
 		} else {
-			m_sft = BITWIDTH - 1;
-			constexpr Word one = 1;
-			for (auto t = one << m_sft; t > n; t >>= 1U) {
-				m_sft--;
-			}
-			constexpr DoubleWord dw_one = 1;
-			const DoubleWord c = dw_one << (m_sft + BITWIDTH);
-			m_fac = 2 * (c / n) + (2 * (c % n)) / n + 1 - (dw_one << BITWIDTH);
+			m_tip = m_fac;
 		}
 #endif
 		return *this;
@@ -141,11 +155,7 @@ public:
 #ifdef DISABLE_SOFT_DIVIDE
 		return m / m_val;
 #else
-		Word t = (m * (DoubleWord)m_fac) >> BITWIDTH;
-		t += (m - t) >> 1U;
-		if (m_fac <= 1U) {
-			t = m;
-		}
+		Word t = (m_fac * (DoubleWord)m + m_tip) >> BITWIDTH;
 		return t >> m_sft;
 #endif
 	}
@@ -154,15 +164,8 @@ public:
 #ifdef DISABLE_SOFT_DIVIDE
 		return m % m_val;
 #else
-		Word t = (m * (DoubleWord)m_fac) >> BITWIDTH;
-		t += (m - t) >> 1U;
-		auto out = m - m_val * (t >> m_sft);
-		constexpr Word one = 1U;
-		const auto tmp = m & ((one << m_sft) - 1U);
-		if (m_fac <= 1U) {
-			out = tmp;
-		}
-		return out;
+		Word t = (m_fac * (DoubleWord)m + m_tip) >> BITWIDTH;
+		return m - m_val * (t >> m_sft);
 #endif
 	}
 };
