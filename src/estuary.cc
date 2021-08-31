@@ -190,15 +190,18 @@ static FORCE_INLINE size_t RecordBlocks(uint8_t* block) {
 	return RecordBlocks(Rc(block).klen, Rc(block).vlen);
 }
 
-static_assert(ADDR_BITWIDTH < 63U);
-static constexpr unsigned TAG_BITWIDTH = 63U - ADDR_BITWIDTH;
+static_assert(ADDR_BITWIDTH < 59U);
+static constexpr unsigned TAG_BITWIDTH = 59U - ADDR_BITWIDTH;
+static constexpr unsigned MAX_OFF_MARK = 15U;
 
 struct Entry {
 	uint64_t blk : ADDR_BITWIDTH;
 	uint64_t fit : 1;
+	uint64_t off : 4;
 	uint64_t tag : TAG_BITWIDTH;
 	Entry() = default;
-	explicit constexpr Entry(uint64_t b, uint64_t t=(1UL<<TAG_BITWIDTH)-1U) : blk(b), fit(0), tag(t) {}
+	explicit constexpr Entry(uint64_t b, uint64_t t=0, uint64_t s=0)
+		: blk(b), fit(0), off(s<MAX_OFF_MARK? s : MAX_OFF_MARK), tag(t) {}
 	FORCE_INLINE void store_release(Entry e) const noexcept {
 		union {
 			Entry e;
@@ -236,19 +239,26 @@ static_assert(TAG_BITWIDTH >= 16U && TAG_BITWIDTH <= 32U);
 #define BLK(idx) (m_data+(idx)*DATA_BLOCK_SIZE)
 
 template <typename Func>
-static FORCE_INLINE void SearchInTable(const Func& func, uint64_t code, Entry* table, const Divisor<uint64_t>& total_entry) {
-	const uint32_t tag = code >> (64U - TAG_BITWIDTH);
-	const auto end = table + total_entry.value();
-	const auto pos = code % total_entry;
+static FORCE_INLINE void SearchInTable(const Func& func, Entry* table, uint64_t total_entry, size_t pos, uint32_t tag) {
+	const auto end = table + total_entry;
 	auto ent = table + pos;
-	for (size_t i = 0; i < total_entry.value(); i++) {
-		if (func(*ent, tag)) {
+	for (size_t i = 0; i < total_entry; i++) {
+		if (func(*ent, tag, i)) {
 			return;
 		}
 		if (UNLIKELY(++ent >= end)) {
 			ent = table;
 		}
 	}
+}
+
+static inline uint32_t CutTag(uint64_t code) {
+	return code >> (64U-TAG_BITWIDTH);
+}
+
+template <typename Func>
+static FORCE_INLINE void SearchInTable(const Func& func, uint64_t code, Entry* table, const Divisor<uint64_t>& total_entry) {
+	SearchInTable(func, table, total_entry.value(), code % total_entry, CutTag(code));
 }
 
 bool Estuary::fetch(Slice key, std::string& out) const {
@@ -269,7 +279,7 @@ void Estuary::touch(uint64_t code) const noexcept {
 	if (m_meta == nullptr) {
 		return;
 	}
-	SearchInTable([this](Entry& ent, uint32_t tag)->bool {
+	SearchInTable([this](Entry& ent, uint32_t tag, size_t)->bool {
 		auto e = ent;
 		if (IsEmpty(e)) {
 			return IsClean(e);
@@ -310,7 +320,7 @@ int Estuary::_fetch(uint64_t code, Slice key, std::string& out) const {
 		const Entry* ent = nullptr;
 	} snapshot;
 	static_assert(UINT32_MAX > MAX_VAL_LEN);
-	SearchInTable([this, key, &snapshot, &out](Entry& ent, uint32_t tag)->bool{
+	SearchInTable([this, key, &snapshot, &out](Entry& ent, uint32_t tag, size_t)->bool{
 		auto e = ent;
 		if (IsEmpty(e)) {
 			return IsClean(e);
@@ -383,7 +393,7 @@ bool Estuary::erase(Slice key) const {
 
 bool Estuary::_erase(Slice key) const {
 	bool done = false;
-	SearchInTable([this, key, &done](Entry& ent, uint32_t tag)->bool{
+	SearchInTable([this, key, &done](Entry& ent, uint32_t tag, size_t)->bool{
 			const auto e = ent;
 			if (IsEmpty(e)) {
 				return IsClean(e);
@@ -473,30 +483,35 @@ bool Estuary::_update(Slice key, Slice val) const {
 	if (UNLIKELY(m_meta->clean_entry <= m_const.total_entry.value() / ENTRY_RESERVE_FACTOR)) {
 		//x times random input brings 1-1/e^x coverage，x = ln(ENTRY_RESERVE_FACTOR)
 		//this procedure is slow, but rarely happen
-		//TODO: need better algorithm
-
-		auto get_hash_code = [this](Entry entry)->uint64_t {
-			auto block = BLK(entry.blk);
-			const auto code = Hash(RcKey(block), Rc(block).klen, m_const.seed);
-			ConsistencyAssert(entry.tag == (code>>(64U - TAG_BITWIDTH)));
-			return code;
-		};
 
 		auto table = (Entry*)m_table;
 		auto& total_entry = m_const.total_entry;
-		auto upstairs = [table, &total_entry, &get_hash_code](bool end)->bool {
+		auto upstairs = [table, &total_entry, this](bool end)->bool {
 			bool moved = false;
 			for (size_t i = 0; i < total_entry.value(); i++) {
 				if (LIKELY(IsEmpty(table[i]) || table[i].fit)) {
 					continue;
 				}
-				bool fit = true;
 				auto curr = &table[i];
-				SearchInTable([&fit, &moved, curr, end](Entry& ent, uint32_t tag)->bool{
+				size_t pos = 0;
+				if (LIKELY(curr->off < MAX_OFF_MARK)) {
+					if (UNLIKELY(i < curr->off)) {
+						pos = total_entry.value() + i - curr->off;
+					} else {
+						pos = i - curr->off;
+					}
+				} else {
+					auto block = BLK(curr->blk);
+					const auto code = Hash(RcKey(block), Rc(block).klen, m_const.seed);
+					ConsistencyAssert(curr->tag == CutTag(code));
+					pos = code % total_entry;
+				}
+				bool fit = true;
+				SearchInTable([&fit, &moved, curr, end](Entry& ent, uint32_t tag, size_t off)->bool{
 					if (IsEmpty(ent)) {
 						moved = true;
 						ConsistencyAssert(!IsClean(ent));
-						ent = *curr;
+						ent = Entry(curr->blk, curr->tag, off);
 						if (fit) {
 							ent.fit = 1;
 						}
@@ -515,7 +530,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 						fit = false;
 					}
 					return false;
-				}, get_hash_code(*curr), table, total_entry);
+				}, table, total_entry.value(), pos, curr->tag);
 			}
 			return moved;
 		};
@@ -560,7 +575,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 		const auto bcnt = RecordBlocks(BLK(vic));
 		memcpy(BLK(cur)+sizeof(RecordMark), BLK(vic)+sizeof(RecordMark), bcnt*DATA_BLOCK_SIZE-sizeof(RecordMark));
 		bool done = false;
-		SearchInTable([this, &cur, vic, bcnt, &done](Entry& ent, uint32_t tag)->bool{
+		SearchInTable([this, &cur, vic, bcnt, &done](Entry& ent, uint32_t tag, size_t off)->bool{
 				const auto e = ent;
 				if (IsEmpty(e)) {
 					return IsClean(e);
@@ -572,7 +587,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 						Rc(BLK(next)) = MarkForEmpty(Rc(BLK(cur)).bcnt-bcnt);
 					}
 					Rc(BLK(cur)) = Rc(BLK(vic));
-					UpdateEntry(GET_LOCK(tag), ent, Entry(cur,tag));
+					UpdateEntry(GET_LOCK(tag), ent, Entry(cur,tag,off));
 					Rc(BLK(vic)) = MarkForEmpty(bcnt);
 					cur = next;
 					m_meta->free_block += bcnt;
@@ -640,13 +655,13 @@ bool Estuary::_update(Slice key, Slice val) const {
 	FillRecord(BLK(neo), key, val);
 
 	bool done = false;
-	SearchInTable([this, &cur, neo, key, val, &done](Entry& ent, uint32_t tag)->bool{
+	SearchInTable([this, &cur, neo, key, val, &done](Entry& ent, uint32_t tag, size_t off)->bool{
 			const auto e = ent;
 			if (IsEmpty(e)) {
 				if (IsClean(e)) {
 					m_meta->clean_entry--;
 				}
-				ent.store_release(Entry(neo, tag));
+				ent.store_release(Entry(neo, tag, off));
 				m_meta->item++;
 				done = true;
 				return true;
@@ -661,7 +676,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 						cur = neo;
 						Rc(BLK(neo)) = MarkForEmpty(bcnt+tail);
 					} else {
-						UpdateEntry(GET_LOCK(tag), ent, Entry(neo, tag));
+						UpdateEntry(GET_LOCK(tag), ent, Entry(neo, tag, off));
 						Rc(block) = MarkForEmpty(bcnt);
 					}
 					m_meta->free_block += bcnt;
@@ -908,7 +923,7 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 				return false;
 			}
 			bool done = false;
-			SearchInTable([&rec, meta, &blk, init_end, &done](Entry& ent, uint32_t tag)->bool{
+			SearchInTable([&rec, meta, &blk, init_end, &done](Entry& ent, uint32_t tag, size_t off)->bool{
 					const auto e = ent;
 					if (IsEmpty(e)) {
 						meta->item++;
@@ -922,7 +937,7 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 					}
 					auto bcnt = RecordBlocks(rec.key.len, rec.val.len);
 					auto block = blk(meta->block_cursor);
-					ent = Entry(meta->block_cursor, tag);
+					ent = Entry(meta->block_cursor, tag, off);
 					meta->block_cursor += bcnt;
 					if (meta->block_cursor > init_end) {
 						Logger::Printf("out of data capacity\n");
