@@ -58,7 +58,7 @@ struct Estuary::Lock {
 };
 
 static constexpr size_t MAX_OFF_MARK = 15U;
-static constexpr unsigned ADDR_BITWIDTH = 43U;
+static constexpr unsigned ADDR_BITWIDTH = 39U;		//4TB
 static constexpr uint64_t MAX_ADDR = (1ULL << ADDR_BITWIDTH) - 1U;
 static constexpr uint64_t RESERVED_ADDR = (1ULL << ADDR_BITWIDTH) - 2U;
 
@@ -67,10 +67,10 @@ static inline uint32_t CutTag(uint64_t code) {
 }
 
 struct Entry {
-	uint64_t blk : 43;
+	uint64_t blk : ADDR_BITWIDTH;
 	uint64_t fit : 1;
 	uint64_t off : 4;
-	uint64_t tip : 8;
+	uint64_t tip : 12;  //for handling ABA problem
 	uint64_t tag : 8;
 	explicit constexpr Entry(uint64_t blk_, uint64_t tip_=0, uint64_t tag_=0, size_t off_=0)
 			: blk(blk_), fit(0), off(off_<MAX_OFF_MARK? off_ : MAX_OFF_MARK), tip(tip_), tag(tag_) {}
@@ -94,15 +94,12 @@ static FORCE_INLINE bool operator!=(Entry a, Entry b) noexcept {
 	return !(a == b);
 }
 
-template <>
 Entry FORCE_INLINE LoadAcquire(const Entry& tgt) {
 	EntryView t = {
 		.u = LoadAcquire((const uint64_t&)tgt)
 	};
 	return t.e;
 }
-
-template <>
 void FORCE_INLINE StoreRelease(Entry& tgt, Entry val) {
 	EntryView t = { .e = val };
 	StoreRelease(((EntryView&)tgt).u, t.u);
@@ -148,15 +145,12 @@ union RecordMark {
 	uint64_t u = 0;
 };
 
-template <>
 RecordMark FORCE_INLINE LoadAcquire(const RecordMark& tgt) {
 	RecordMark m = {
 		.u = LoadAcquire((const uint64_t&)tgt)
 	};
 	return m;
 }
-
-template <>
 void FORCE_INLINE StoreRelease(RecordMark& tgt, RecordMark val) {
 	StoreRelease(tgt.u, val.u);
 }
