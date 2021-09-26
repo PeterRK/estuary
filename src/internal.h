@@ -38,7 +38,7 @@ static_assert(sizeof(uintptr_t)==sizeof(uint64_t));
 #define UNLIKELY(exp) __builtin_expect((exp),0)
 
 namespace estuary {
-extern uint64_t Hash(const uint8_t* msg, uint8_t len, uint64_t seed) noexcept;
+extern uint64_t Hash(const uint8_t* msg, unsigned len, uint64_t seed) noexcept;
 
 struct LockException : public std::exception {
 	const char* what() const noexcept override;
@@ -113,8 +113,8 @@ static FORCE_INLINE void PrefetchForFuture(const void* ptr) {
 static_assert(CACHE_BLOCK_SIZE >= 64U && (CACHE_BLOCK_SIZE&(CACHE_BLOCK_SIZE-1)) == 0);
 
 template <typename T>
-T FORCE_INLINE LoadRelaxed(const T& tgt) {
-	return __atomic_load_n(&tgt, __ATOMIC_RELAXED);
+T FORCE_INLINE LoadAcquire(const T& tgt) {
+	return __atomic_load_n(&tgt, __ATOMIC_ACQUIRE);
 }
 
 template <typename T>

@@ -87,7 +87,7 @@ public:
 	}
 
 	struct Meta;
-	struct Mutex;
+	struct Lock;
 
 private:
 	MemMap m_resource;
@@ -100,7 +100,7 @@ private:
 		uint64_t seed = 0;
 		Divisor<uint64_t> total_entry;
 	} m_const;
-	Mutex* m_lock = nullptr;
+	Lock* m_lock = nullptr;
 	int64_t* m_stamps = nullptr;
 	uint32_t* m_recycle = nullptr;
 	uint32_t* m_table = nullptr;

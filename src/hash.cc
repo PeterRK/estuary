@@ -54,7 +54,7 @@ static FORCE_INLINE void End(uint64_t& h0, uint64_t& h1, uint64_t& h2, uint64_t&
 }
 
 //SpookyHash
-uint64_t Hash(const uint8_t* msg, uint8_t len, uint64_t seed) noexcept {
+uint64_t Hash(const uint8_t* msg, unsigned len, uint64_t seed) noexcept {
 	constexpr uint64_t magic = 0xdeadbeefdeadbeefULL;
 
 	uint64_t a = seed;
@@ -70,6 +70,7 @@ uint64_t Hash(const uint8_t* msg, uint8_t len, uint64_t seed) noexcept {
 		a += x[2];
 		b += x[3];
 	}
+  //len &= 0xffU;
 
 	if (len & 0x10U) {
 		auto x = (const uint64_t*)msg;

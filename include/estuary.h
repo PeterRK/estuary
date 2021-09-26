@@ -52,12 +52,11 @@ public:
 
 	Estuary() = default;
 	Estuary(Estuary&& other) noexcept
-		: m_resource(std::move(other.m_resource)), m_meta(other.m_meta), m_const(other.m_const),
-		  m_locks(other.m_locks), m_sweeping(other.m_sweeping), m_table(other.m_table), m_data(other.m_data),
-		  m_monopoly_extra(std::move(other.m_monopoly_extra)) {
+			: m_resource(std::move(other.m_resource)), m_meta(other.m_meta), m_const(other.m_const),
+				m_lock(other.m_lock), m_table(other.m_table), m_data(other.m_data),
+				m_monopoly_extra(std::move(other.m_monopoly_extra)) {
 		other.m_meta = nullptr;
-		other.m_sweeping = nullptr;
-		other.m_locks = nullptr;
+		other.m_lock = nullptr;
 		other.m_table = nullptr;
 		other.m_data = nullptr;
 	}
@@ -77,37 +76,31 @@ public:
 		unsigned max_key_len = 32;			//1-255
 		unsigned max_val_len = 1048576;		//1-16777215
 		unsigned avg_size_per_item = 2048;	//2-16777215
-		unsigned concurrency = 64;			//1-512
 	};
 
 	static bool Create(const std::string& path, const Config& config, IDataReader* source=nullptr);
-	static bool ResetLocks(const std::string& path);
-
 	enum LoadPolicy {SHARED, MONOPOLY, COPY_DATA};
-	//concurrency > 0 means overwriting the origin value in monopoly mode
-	static Estuary Load(const std::string& path, LoadPolicy policy=MONOPOLY, unsigned concurrency=0);
+	static Estuary Load(const std::string& path, LoadPolicy policy=MONOPOLY);
 
 	bool dump(const std::string& path) const noexcept {
 		return m_resource.dump(path.c_str());
 	}
 
 	struct Meta;
-	struct Locks;
+	struct Lock;
 
 private:
 	MemMap m_resource;
 	Meta* m_meta = nullptr;
 	struct {
-		uint16_t lock_mask = 0;
-		uint8_t max_key_len = 0;
-		uint32_t max_val_len = 0;
-		uint32_t seed = 0;
+		uint32_t max_key_len : 8;
+		uint32_t max_val_len : 24;
 		uint32_t reserved_block = 0;
+		uint64_t seed = 0;
 		size_t total_block = 0;
 		Divisor<uint64_t> total_entry;
 	} m_const;
-	Locks* m_locks = nullptr;
-	bool* m_sweeping = nullptr;
+	Lock* m_lock = nullptr;
 	uint64_t* m_table = nullptr;
 	uint8_t* m_data = nullptr;
 	std::unique_ptr<uint8_t[]> m_monopoly_extra;
@@ -115,7 +108,7 @@ private:
 	Estuary(const Estuary&) noexcept = delete;
 	Estuary& operator=(const Estuary&) noexcept = delete;
 
-	int _fetch(uint64_t code, Slice key, std::string& out) const;
+	bool _fetch(uint64_t code, Slice key, std::string& out) const;
 	bool _erase(Slice key) const;
 	bool _update(Slice key, Slice val) const;
 };

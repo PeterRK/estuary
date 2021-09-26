@@ -38,7 +38,7 @@ static constexpr size_t SIZE = 1UL << 27U;
 
 static int BenchFetch() {
 	auto mode = FLAGS_copy? estuary::Estuary::COPY_DATA : estuary::Estuary::MONOPOLY;
-	auto dict = estuary::Estuary::Load(FLAGS_file, mode, FLAGS_thread);
+	auto dict = estuary::Estuary::Load(FLAGS_file, mode);
 	if (!dict) {
 		std::cout << "fail to load: " << FLAGS_file << std::endl;
 		return -1;
@@ -50,7 +50,7 @@ static int BenchFetch() {
 
 	uint64_t write_ops = 0;
 	uint64_t write_ns = 0;
-	bool quit = FLAGS_disable_write;
+	volatile bool quit = FLAGS_disable_write;
 	std::thread writer([ &dict, &quit, &write_ops, &write_ns](){
 		XorShift128Plus rnd;
 		uint64_t key = 0;
@@ -69,7 +69,6 @@ static int BenchFetch() {
 		auto end = std::chrono::steady_clock::now();
 		write_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 	});
-
 
 	const unsigned n = FLAGS_thread;
 	constexpr unsigned loop = 1000000;

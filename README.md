@@ -7,9 +7,10 @@ It can provide 200M read QPS on single machine.
 And more than 2M write QPS without persistence.
 
 ### Key Features
-* fine-grained locking
+* lock-free read
 * high read performance
 * support key and value with variable length
+* have a very low failure rate in theory
 * aceptable space overhead (ablout 21 bytes per item + 10% data size)
 * work on CPU support little-endian unaligned memory access (X86，ARM，RISC-V...)
 

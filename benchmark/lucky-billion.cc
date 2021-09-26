@@ -94,7 +94,7 @@ static int BenchFetch() {
 
 	uint64_t write_ops = 0;
 	uint64_t write_ns = 0;
-	bool quit = FLAGS_disable_write;
+	volatile bool quit = FLAGS_disable_write;
 	std::thread writer([&dict, &quit, &write_ops, &write_ns](){
 		RandEmbGenerator writer(batch, BILLION);
 		while (!quit) {

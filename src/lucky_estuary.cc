@@ -53,10 +53,9 @@ uint32_t LuckyEstuary::item() const noexcept {
 	return m_meta == nullptr? 0 : m_meta->item;
 }
 
-struct LuckyEstuary::Mutex {
+struct LuckyEstuary::Lock {
 	pthread_mutex_t core;
 };
-using Mutex = LuckyEstuary::Mutex;
 
 static constexpr unsigned RECYCLE_CAPACITY = UINT16_MAX+1;
 static constexpr unsigned RECYCLE_BIN_SIZE = UINT8_MAX+1;
@@ -86,13 +85,13 @@ bool LuckyEstuary::fetch(const uint8_t* key, uint8_t* val) const {
 	if (m_meta == nullptr || key == nullptr) {
 		return false;
 	}
-	for (auto idx = m_table[ENTRY(key)]; idx != Node::END; ) {
-		auto node = NODE(idx);
+	for (auto id = LoadAcquire(m_table[ENTRY(key)]); id != Node::END; ) {
+		auto node = NODE(id);
 		if (Equal(node->line, key, m_const.key_len)) {
 			memcpy(val, node->line+m_const.key_len, m_const.val_len);
 			return true;
 		}
-		idx = node->next;
+		id = LoadAcquire(node->next);
 	}
 	return false;
 }
@@ -128,14 +127,14 @@ unsigned LuckyEstuary::batch_fetch(unsigned batch, const uint8_t* __restrict__ k
 			auto out = data + cur.idx * m_const.val_len;
 			uint32_t next = Node::END;
 			if (cur.node == nullptr) {
-				next = m_table[cur.ent];
+				next = LoadAcquire(m_table[cur.ent]);
 			} else {
 				if (Equal(key, cur.node->line, m_const.key_len)) {
 					memcpy(out, cur.node->line+m_const.key_len, m_const.val_len);
 					hit++;
 					goto reload;
 				} else {
-					next = cur.node->next;
+					next = LoadAcquire(cur.node->next);
 				}
 			}
 			if (next != Node::END) {
@@ -327,7 +326,7 @@ void LuckyEstuary::_recycle(uint32_t vic) const {
 	}
 }
 
-static bool InitLocks(Mutex* lock, bool shared=true) {
+static bool InitLock(LuckyEstuary::Lock* lock, bool shared=true) {
 	const int pshared = shared? PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
 	pthread_mutexattr_t mutexattr;
 	if (pthread_mutexattr_init(&mutexattr) != 0
@@ -388,15 +387,15 @@ LuckyEstuary LuckyEstuary::Load(const std::string& path, LoadPolicy policy) {
 	}
 
 	std::unique_ptr<uint8_t[]> monopoly_extra;
-	auto lock = (Mutex*)(res.addr()+lock_off);
+	auto lock = (Lock*)(res.addr() + lock_off);
 	if (policy != SHARED) {
 		if (meta->writing) {
 			Logger::Printf("file is not saved correctly: %s\n", path.c_str());
 			return out;
 		}
-		monopoly_extra = std::make_unique<uint8_t[]>(sizeof(pthread_mutex_t));
-		lock = (Mutex*)monopoly_extra.get();
-		if (!InitLocks(lock)) {
+		monopoly_extra = std::make_unique<uint8_t[]>(sizeof(Lock));
+		lock = (Lock*)monopoly_extra.get();
+		if (!InitLock(lock)) {
 			Logger::Printf("fail to reset locks in: %s\n", path.c_str());
 			return out;
 		}
@@ -442,7 +441,7 @@ bool LuckyEstuary::Create(const std::string& path, const Config& config, IDataRe
 
 	size_t size = sizeof(header);
 	const auto lock_off = size;
-	size += sizeof(pthread_mutex_t);
+	size += sizeof(Lock);
 	size += sizeof(int64_t) * (RECYCLE_CAPACITY/RECYCLE_BIN_SIZE);
 	const auto recycle_off = size;
 	size += sizeof(uint32_t) * RECYCLE_CAPACITY;
@@ -456,7 +455,7 @@ bool LuckyEstuary::Create(const std::string& path, const Config& config, IDataRe
 		return false;
 	}
 	auto meta = (Meta*)res.addr();
-	auto lock = (Mutex*)(res.addr() + lock_off);
+	auto lock = (Lock*)(res.addr() + lock_off);
 	auto recycle = (uint32_t*)(res.addr()+recycle_off);
 	auto table = (uint32_t*)(res.addr()+table_off);
 	auto data = res.addr() + data_off;
@@ -466,7 +465,7 @@ bool LuckyEstuary::Create(const std::string& path, const Config& config, IDataRe
 	};
 
 	*meta = header;
-	if (!InitLocks(lock)) {
+	if (!InitLock(lock)) {
 		Logger::Printf("fail to init\n");
 		return false;
 	}
