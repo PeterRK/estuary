@@ -374,8 +374,8 @@ static uint64_t FillRecord(uint8_t* block, Slice key, Slice val) {
 
 bool Estuary::update(Slice key, Slice val) const {
 	if (m_meta == nullptr
-			|| key.ptr == nullptr || key.len == 0 || key.len > max_key_len()
-			|| (val.len != 0 && val.ptr == nullptr) || val.len > max_val_len()) {
+		|| key.ptr == nullptr || key.len == 0 || key.len > max_key_len()
+		|| (val.len != 0 && val.ptr == nullptr) || val.len > max_val_len()) {
 		return false;
 	}
 	MutexLock master_lock(&m_lock->core);
@@ -501,16 +501,29 @@ bool Estuary::_update(Slice key, Slice val) const {
 	auto& cur = m_meta->block_cursor;
 	ConsistencyAssert(Rc(BLK(cur)).klen == 0 && cur+Rc(BLK(cur)).bcnt <= m_const.total_block);
 
-	auto move_record = [this, &cur](size_t vic) {
+	const auto code = Hash(key.ptr, key.len, m_const.seed);
+	auto origin_entry = CLEAN_ENTRY;
+	//update after movement may cause ABA problem, detect and fix it
+
+	auto move_record = [this, &cur, code, key, &origin_entry](size_t vic) {
 		assert(Rc(BLK(vic)).klen != 0);
 		const auto bcnt = RecordBlocks(BLK(vic));
 		memcpy(BLK(cur)+sizeof(RecordMark), BLK(vic)+sizeof(RecordMark), bcnt*DATA_BLOCK_SIZE-sizeof(RecordMark));
+		const auto bcode = Hash(RcKey(BLK(vic)), Rc(BLK(vic)).klen, m_const.seed);
+		Entry* pent = nullptr;
+		if (UNLIKELY(bcode == code && KeyMatch(key, BLK(vic)))) {
+			pent = &origin_entry;
+			ConsistencyAssert(IsClean(origin_entry));
+		}
 		bool done = false;
-		SearchInTable([this, &cur, vic, bcnt, &done](Entry& ent, uint32_t tag, size_t off)->bool{
+		SearchInTable([this, &cur, vic, bcnt, &done, pent](Entry& ent, uint32_t tag, size_t off)->bool{
 			auto e = ent;
 			if (IsEmpty(e)) {
 				return IsClean(e);
 			} else if (e.blk == vic) {
+				if (UNLIKELY(pent != nullptr)) {
+					*pent = e;
+				}
 				m_meta->free_block -= bcnt;
 				auto next = cur + bcnt;
 				if (LIKELY(next != m_const.total_block)) {
@@ -527,7 +540,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 				return true;
 			}
 			return false;
-		}, Hash(RcKey(BLK(vic)), Rc(BLK(vic)).klen, m_const.seed), (Entry*)m_table, m_const.total_entry);
+		}, bcode, (Entry*)m_table, m_const.total_entry);
 		if (UNLIKELY(!done)) {
 			Rc(BLK(vic)) = MarkForEmpty(bcnt);
 			m_meta->free_block += bcnt;
@@ -587,7 +600,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 	auto tip = FillRecord(BLK(neo), key, val);
 
 	bool done = false;
-	SearchInTable([this, &cur, neo, tip, key, val, &done](Entry& ent, uint32_t tag, size_t off)->bool{
+	SearchInTable([this, &cur, neo, tip, key, val, &done, origin_entry](Entry& ent, uint32_t tag, size_t off)->bool{
 		const auto e = ent;
 		if (IsEmpty(e)) {
 			if (IsClean(e)) {
@@ -608,7 +621,11 @@ bool Estuary::_update(Slice key, Slice val) const {
 					cur = neo;
 					Rc(BLK(neo)) = MarkForEmpty(bcnt+tail);
 				} else {
-					StoreRelease(ent, Entry(neo, tip, tag, off));
+					Entry entry(neo, tip, tag, off);
+					if (UNLIKELY(entry == origin_entry)) {		//ABA after movement
+						entry.tip ^= 1;
+					}
+					StoreRelease(ent, entry);
 					Rc(block) = MarkForEmpty(bcnt);
 				}
 				m_meta->free_block += bcnt;
@@ -618,7 +635,7 @@ bool Estuary::_update(Slice key, Slice val) const {
 			}
 		}
 		return false;
-	}, Hash(key.ptr, key.len, m_const.seed), (Entry*)m_table, m_const.total_entry);
+	}, code, (Entry*)m_table, m_const.total_entry);
 	return done;
 }
 
