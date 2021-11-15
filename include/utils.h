@@ -24,6 +24,7 @@
 #include <cstdarg>
 #include <new>
 #include <utility>
+#include <functional>
 #include <type_traits>
 
 namespace estuary {
@@ -38,6 +39,7 @@ public:
 	struct LoadByCopy {};
 	static constexpr LoadByCopy load_by_copy = {};
 	explicit MemMap(const char* path, LoadByCopy);
+  MemMap(size_t size, const std::function<bool(uint8_t*)>& load);
 
 	MemMap(MemMap&& other) noexcept
 		: m_addr(other.m_addr), m_size(other.m_size), m_fd(other.m_fd) {

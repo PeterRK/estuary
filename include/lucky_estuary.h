@@ -81,6 +81,7 @@ public:
 	static bool Create(const std::string& path, const Config& config, IDataReader* source=nullptr);
 	enum LoadPolicy {SHARED, MONOPOLY, COPY_DATA};
 	static LuckyEstuary Load(const std::string& path, LoadPolicy policy=MONOPOLY);
+  static LuckyEstuary Load(size_t size, const std::function<bool(uint8_t*)>& load);
 
 	bool dump(const std::string& path) const noexcept {
 		return m_resource.dump(path.c_str());
@@ -110,6 +111,8 @@ private:
 	void _recycle(uint32_t vic) const;
 	bool _erase(const uint8_t* key) const;
 	bool _update(const uint8_t* key, const uint8_t* val) const;
+
+  void _init(MemMap&& res, bool monopoly, const char* path);
 };
 
 } //estuary

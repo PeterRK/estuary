@@ -130,26 +130,39 @@ MemMap::MemMap(const char* path, LoadByCopy) {
 		close(fd);
 		return;
 	}
-	auto round_up_size = RoundUp(stat.st_size);
-	void* addr = mmap(nullptr, round_up_size, PROT_READ | PROT_WRITE,
-					  MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-	if (addr == MAP_FAILED && errno == ENOMEM) {
-		addr = mmap(nullptr, round_up_size, PROT_READ | PROT_WRITE,
-					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	}
-	if (addr == MAP_FAILED) {
-		Logger::Printf("fail to mmap[%d]: %lu\n", errno, round_up_size);
-		close(fd);
-		return;
-	}
-	if (!Read(fd, (uint8_t*)addr, stat.st_size)) {
-		Logger::Printf("fail to read file: %s\n", path);
-		munmap(addr, round_up_size);
-	} else {
-		m_addr = static_cast<uint8_t*>(addr);
-		m_size = stat.st_size;
-	}
+  auto size = stat.st_size;
+  new(this)MemMap(size, [fd, size, path](uint8_t* space)->bool {
+    if (!Read(fd, space, size)) {
+      Logger::Printf("fail to read file: %s\n", path);
+      return false;
+    }
+    return true;
+  });
 	close(fd);
+}
+
+MemMap::MemMap(size_t size, const std::function<bool(uint8_t*)>& load) {
+  if (size == 0) {
+    Logger::Printf("unexpected size 0\n");
+    return;
+  }
+  auto round_up_size = RoundUp(size);
+  void* addr = mmap(nullptr, round_up_size, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+  if (addr == MAP_FAILED && errno == ENOMEM) {
+    addr = mmap(nullptr, round_up_size, PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  }
+  if (addr == MAP_FAILED) {
+    Logger::Printf("fail to mmap[%d]: %lu\n", errno, round_up_size);
+    return;
+  }
+  if (!load((uint8_t*)addr)) {
+    munmap(addr, round_up_size);
+    return;
+  }
+  m_addr = static_cast<uint8_t*>(addr);
+  m_size = size;
 }
 
 MemMap::~MemMap() noexcept {

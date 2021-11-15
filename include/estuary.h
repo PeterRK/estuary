@@ -81,6 +81,7 @@ public:
 	static bool Create(const std::string& path, const Config& config, IDataReader* source=nullptr);
 	enum LoadPolicy {SHARED, MONOPOLY, COPY_DATA};
 	static Estuary Load(const std::string& path, LoadPolicy policy=MONOPOLY);
+  static Estuary Load(size_t size, const std::function<bool(uint8_t*)>& load);
 
 	bool dump(const std::string& path) const noexcept {
 		return m_resource.dump(path.c_str());
@@ -111,6 +112,8 @@ private:
 	bool _fetch(uint64_t code, Slice key, std::string& out) const;
 	bool _erase(Slice key) const;
 	bool _update(Slice key, Slice val) const;
+
+  void _init(MemMap&& res, bool monopoly, const char* path);
 };
 
 } //estuary

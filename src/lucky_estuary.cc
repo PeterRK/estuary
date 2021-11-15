@@ -352,23 +352,39 @@ static FORCE_INLINE size_t ItemSize(uint8_t key_len, uint32_t val_len) {
 }
 
 LuckyEstuary LuckyEstuary::Load(const std::string& path, LoadPolicy policy) {
-	LuckyEstuary out;
-	MemMap res;
-	switch (policy) {
-		case SHARED:
-			res = MemMap(path.c_str(), true, false);
-			break;
-		case MONOPOLY:
-			res = MemMap(path.c_str(), true, true);
-			break;
-		case COPY_DATA:
-			res = MemMap(path.c_str(), MemMap::load_by_copy);
-			break;
-		default:
-			return out;
-	}
+  LuckyEstuary out;
+  MemMap res;
+  switch (policy) {
+    case SHARED:
+      res = MemMap(path.c_str(), true, false);
+      break;
+    case MONOPOLY:
+      res = MemMap(path.c_str(), true, true);
+      break;
+    case COPY_DATA:
+      res = MemMap(path.c_str(), MemMap::load_by_copy);
+      break;
+    default:
+      return out;
+  }
+  if (!!res) {
+    out._init(std::move(res), policy!=SHARED, path.c_str());
+  }
+  return out;
+}
+
+LuckyEstuary LuckyEstuary::Load(size_t size, const std::function<bool(uint8_t*)>& load) {
+  LuckyEstuary out;
+  MemMap res(size, load);
+  if (!!res) {
+    out._init(std::move(res), true, "...");
+  }
+  return out;
+}
+
+void LuckyEstuary::_init(MemMap&& res, bool monopoly, const char* path) {
 	if (!res || res.size() < sizeof(Meta)) {
-		return out;
+		return;
 	}
 	auto meta = (Meta*)res.addr();
 	const auto lock_off = sizeof(Meta);
@@ -382,42 +398,41 @@ LuckyEstuary LuckyEstuary::Load(const std::string& path, LoadPolicy policy) {
 		|| meta->capacity < MIN_CAPACITY || meta->capacity > MAX_CAPACITY
 		|| meta->total_entry == 0 || meta->capacity/meta->total_entry > MAX_LOAD_FACTOR
 		|| res.size() < data_off + item_size * capacity) {
-		Logger::Printf("broken file: %s\n", path.c_str());
-		return out;
+		Logger::Printf("broken file: %s\n", path);
+		return;
 	}
 
 	std::unique_ptr<uint8_t[]> monopoly_extra;
 	auto lock = (Lock*)(res.addr() + lock_off);
-	if (policy != SHARED) {
+	if (monopoly) {
 		if (meta->writing) {
-			Logger::Printf("file is not saved correctly: %s\n", path.c_str());
-			return out;
+			Logger::Printf("file is not saved correctly: %s\n", path);
+			return;
 		}
 		monopoly_extra = std::make_unique<uint8_t[]>(sizeof(Lock));
 		lock = (Lock*)monopoly_extra.get();
 		if (!InitLock(lock)) {
-			Logger::Printf("fail to reset locks in: %s\n", path.c_str());
-			return out;
+			Logger::Printf("fail to reset locks in: %s\n", path);
+			return;
 		}
 	}
 
 	assert(item_size >= sizeof(Node));
 
-	out.m_meta = meta;
-	out.m_lock = lock;
-	out.m_stamps = (int64_t*)(res.addr()+stamps_off);
-	out.m_recycle = (uint32_t*)(res.addr()+recycle_off);
-	out.m_table = (uint32_t*)(res.addr()+table_off);
-	out.m_data = res.addr()+data_off;
-	out.m_monopoly_extra = std::move(monopoly_extra);
-	out.m_resource = std::move(res);
-	out.m_const.key_len = meta->key_len;
-	out.m_const.val_len = meta->val_len;
-	out.m_const.item_size = item_size;
-	out.m_const.capacity = meta->capacity;
-	out.m_const.seed = meta->seed;
-	out.m_const.total_entry = meta->total_entry;
-	return out;
+	m_meta = meta;
+	m_lock = lock;
+	m_stamps = (int64_t*)(res.addr()+stamps_off);
+	m_recycle = (uint32_t*)(res.addr()+recycle_off);
+	m_table = (uint32_t*)(res.addr()+table_off);
+	m_data = res.addr()+data_off;
+	m_monopoly_extra = std::move(monopoly_extra);
+	m_resource = std::move(res);
+	m_const.key_len = meta->key_len;
+	m_const.val_len = meta->val_len;
+	m_const.item_size = item_size;
+	m_const.capacity = meta->capacity;
+	m_const.seed = meta->seed;
+	m_const.total_entry = meta->total_entry;
 }
 
 bool LuckyEstuary::Create(const std::string& path, const Config& config, IDataReader* source) {

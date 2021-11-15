@@ -662,23 +662,39 @@ Estuary::~Estuary() noexcept {
 }
 
 Estuary Estuary::Load(const std::string& path, LoadPolicy policy) {
-	Estuary out;
-	MemMap res;
-	switch (policy) {
-		case SHARED:
-			res = MemMap(path.c_str(), true, false);
-			break;
-		case MONOPOLY:
-			res = MemMap(path.c_str(), true, true);
-			break;
-		case COPY_DATA:
-			res = MemMap(path.c_str(), MemMap::load_by_copy);
-			break;
-		default:
-			return out;
-	}
+  Estuary out;
+  MemMap res;
+  switch (policy) {
+    case SHARED:
+      res = MemMap(path.c_str(), true, false);
+      break;
+    case MONOPOLY:
+      res = MemMap(path.c_str(), true, true);
+      break;
+    case COPY_DATA:
+      res = MemMap(path.c_str(), MemMap::load_by_copy);
+      break;
+    default:
+      return out;
+  }
+  if (!!res) {
+    out._init(std::move(res), policy!=SHARED, path.c_str());
+  }
+  return out;
+}
+
+Estuary Estuary::Load(size_t size, const std::function<bool(uint8_t*)>& load) {
+  Estuary out;
+  MemMap res(size, load);
+  if (!!res) {
+    out._init(std::move(res), true, "...");
+  }
+  return out;
+}
+
+void Estuary::_init(MemMap&& res, bool monopoly, const char* path) {
 	if (!res || res.size() < sizeof(Header)) {
-		return out;
+		return;
 	}
 	auto meta = (Header*)res.addr();
 	auto lock_off = sizeof(Header);
@@ -688,42 +704,41 @@ Estuary Estuary::Load(const std::string& path, LoadPolicy policy) {
 		|| meta->total_entry < MIN_ENTRY || meta->total_entry > MAX_ENTRY
 		|| meta->total_block < meta->total_entry || meta->total_block > DATA_BLOCK_LIMIT
 		|| res.size() < data_off + meta->total_block * DATA_BLOCK_SIZE) {
-		Logger::Printf("broken file: %s\n", path.c_str());
-		return out;
+    Logger::Printf("broken file: %s\n", path);
+		return;
 	}
 
 	std::unique_ptr<uint8_t[]> monopoly_extra;
 	auto lock = (Lock*)(res.addr() + lock_off);
-	if (policy != SHARED) {
+	if (monopoly) {
 		if (meta->writing) {
-			Logger::Printf("file is not saved correctly: %s\n", path.c_str());
-			return out;
+			Logger::Printf("file is not saved correctly: %s\n", path);
+			return;
 		}
 		monopoly_extra = std::make_unique<uint8_t[]>(sizeof(Lock));
 		lock = (Lock*)monopoly_extra.get();
 		if (!InitLock(lock)) {
-			Logger::Printf("fail to reset locks in: %s\n", path.c_str());
-			return out;
+			Logger::Printf("fail to reset locks in: %s\n", path);
+			return;
 		}
 	}
 
-	out.m_lock = lock;
-	out.m_table = (uint64_t*)(res.addr()+table_off);
-	out.m_data = res.addr()+data_off;
+	m_lock = lock;
+	m_table = (uint64_t*)(res.addr()+table_off);
+	m_data = res.addr()+data_off;
 	auto& mark = *(RecordMark*)&meta->kv_limit;
-	out.m_const.max_key_len = mark.klen;
-	out.m_const.max_val_len = mark.vlen;
-	out.m_const.reserved_block = RecordBlocks(mark.klen, mark.vlen) * 2;
-	out.m_const.seed = meta->seed;
-	out.m_const.total_entry = meta->total_entry;
-	out.m_const.total_block = meta->total_block;
-	if (out.m_const.total_block <= out.m_const.reserved_block) {
-		return out;
+	m_const.max_key_len = mark.klen;
+	m_const.max_val_len = mark.vlen;
+	m_const.reserved_block = RecordBlocks(mark.klen, mark.vlen) * 2;
+	m_const.seed = meta->seed;
+	m_const.total_entry = meta->total_entry;
+	m_const.total_block = meta->total_block;
+	if (m_const.total_block <= m_const.reserved_block) {
+		return;
 	}
-	out.m_monopoly_extra = std::move(monopoly_extra);
-	out.m_resource = std::move(res);
-	out.m_meta = meta;
-	return out;
+	m_monopoly_extra = std::move(monopoly_extra);
+	m_resource = std::move(res);
+	m_meta = meta;
 }
 
 bool Estuary::Create(const std::string& path, const Config& config, IDataReader* source) {
