@@ -74,8 +74,8 @@ public:
 	struct Config {
 		size_t item_limit = 1000;			//128-4294967294
 		unsigned max_key_len = 32;			//1-255
-		unsigned max_val_len = 1048576;		//1-16777215
-		unsigned avg_size_per_item = 2048;	//2-16777215
+		unsigned max_val_len = 1048576;	//1-16777215
+		unsigned avg_item_size = 2048;	//2-16777215
 	};
 
 	static bool Create(const std::string& path, const Config& config, IDataReader* source=nullptr);

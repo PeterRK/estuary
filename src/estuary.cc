@@ -743,9 +743,9 @@ void Estuary::_init(MemMap&& res, bool monopoly, const char* path) {
 
 bool Estuary::Create(const std::string& path, const Config& config, IDataReader* source) {
 	if (TotalEntry(config.item_limit) < MIN_ENTRY || TotalEntry(config.item_limit) > MAX_ENTRY
-		|| config.max_key_len == 0 || config.max_key_len > MAX_KEY_LEN
-		|| config.max_val_len == 0 || config.max_val_len > MAX_VAL_LEN
-		|| config.avg_size_per_item < 2 || config.avg_size_per_item > config.max_key_len+config.max_val_len) {
+      || config.max_key_len == 0 || config.max_key_len > MAX_KEY_LEN
+      || config.max_val_len == 0 || config.max_val_len > MAX_VAL_LEN
+      || config.avg_item_size < 2 || config.avg_item_size > config.max_key_len + config.max_val_len) {
 		Logger::Printf("bad arguments\n");
 		return false;
 	}
@@ -758,7 +758,7 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 
 	header.total_entry = TotalEntry(config.item_limit);
 	header.clean_entry = header.total_entry;
-	auto block_per_item = ((config.avg_size_per_item+sizeof(uint32_t))+(DATA_BLOCK_SIZE-1))/DATA_BLOCK_SIZE;
+	auto block_per_item = ((config.avg_item_size + sizeof(uint32_t)) + (DATA_BLOCK_SIZE - 1)) / DATA_BLOCK_SIZE;
 	header.total_block = block_per_item * (config.item_limit + 1);
 	const auto init_end = header.total_block;
 	header.total_block += header.total_block / (DATA_RESERVE_FACTOR-1) + 1;

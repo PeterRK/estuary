@@ -25,7 +25,7 @@ class EmbeddingGenerator : public estuary::IDataReader {
 public:
 	static constexpr uint64_t MASK0 = 0xaaaaaaaaaaaaaaaaUL;
 	static constexpr uint64_t MASK1 = 0x5555555555555555UL;
-	explicit EmbeddingGenerator(uint64_t begin, uint64_t total, uint64_t mask=MASK0)
+	EmbeddingGenerator(uint64_t begin, uint64_t total, uint64_t mask=MASK0)
 			: m_current(begin-1), m_begin(begin), m_total(total), m_mask(mask)
 	{}
 	EmbeddingGenerator(const EmbeddingGenerator&) = delete;
@@ -58,7 +58,7 @@ private:
 
 class VariedValueGenerator : public estuary::IDataReader {
 public:
-	explicit VariedValueGenerator(uint64_t begin, uint64_t total, unsigned shift=5U)
+	VariedValueGenerator(uint64_t begin, uint64_t total, unsigned shift=5U)
 		: m_current(begin-1), m_begin(begin), m_total(total), m_shift(shift)
 	{}
 	VariedValueGenerator(const VariedValueGenerator&) = delete;

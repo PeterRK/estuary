@@ -141,7 +141,7 @@ static int BenchBuild() {
 	config.item_limit = SIZE;
 	config.max_key_len = sizeof(uint64_t);
 	config.max_val_len = UINT8_MAX;
-	config.avg_size_per_item = UINT8_MAX/2 + 1 + sizeof(uint64_t);
+	config.avg_item_size = UINT8_MAX / 2 + 1 + sizeof(uint64_t);
 
 	VariedValueGenerator source(0, SIZE);
 	if (!estuary::Estuary::Create(FLAGS_file, config, &source)) {

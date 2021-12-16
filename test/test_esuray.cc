@@ -27,7 +27,7 @@ estuary::Estuary::Config CONFIG = {
 	.item_limit = PIECE,
 	.max_key_len = sizeof(uint64_t),
 	.max_val_len = UINT8_MAX,
-	.avg_size_per_item = UINT8_MAX/2 + 1 + sizeof(uint64_t)
+	.avg_item_size = UINT8_MAX / 2 + 1 + sizeof(uint64_t)
 };
 
 TEST(Estuary, BuildAndRead) {
