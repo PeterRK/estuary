@@ -1,6 +1,6 @@
 //==============================================================================
 // Dictionary designed for read-mostly scene.
-// Copyright (C) 2020  Ruan Kunliang
+// Copyright (C) 2020	Ruan Kunliang
 //
 // This library is free software; you can redistribute it and/or modify it under
 // the terms of the GNU Lesser General Public License as published by the Free
@@ -72,7 +72,7 @@ public:
 	static constexpr unsigned MAX_KEY_LEN = UINT8_MAX;
 	static constexpr unsigned MAX_VAL_LEN = (1U<<24U)-1U;
 	struct Config {
-		size_t item_limit = 1000;			//128-4294967294
+		size_t item_limit = 1000;				//128-4294967294
 		unsigned max_key_len = 32;			//1-255
 		unsigned max_val_len = 1048576;	//1-16777215
 		unsigned avg_item_size = 2048;	//2-16777215
@@ -81,7 +81,11 @@ public:
 	static bool Create(const std::string& path, const Config& config, IDataReader* source=nullptr);
 	enum LoadPolicy {SHARED, MONOPOLY, COPY_DATA};
 	static Estuary Load(const std::string& path, LoadPolicy policy=MONOPOLY);
-  static Estuary Load(size_t size, const std::function<bool(uint8_t*)>& load);
+	static Estuary Load(size_t size, const std::function<bool(uint8_t*)>& load);
+
+	// only data limit can be extended, item limit cannot
+	// percent should be 1-100
+	static bool Extend(const std::string& path, unsigned percent, Config* result=nullptr);
 
 	bool dump(const std::string& path) const noexcept {
 		return m_resource.dump(path.c_str());
@@ -113,7 +117,7 @@ private:
 	bool _erase(Slice key) const;
 	bool _update(Slice key, Slice val) const;
 
-  void _init(MemMap&& res, bool monopoly, const char* path);
+	void _init(MemMap&& res, bool monopoly, const char* path);
 };
 
 } //estuary

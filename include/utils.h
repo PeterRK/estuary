@@ -29,11 +29,15 @@
 
 namespace estuary {
 
+extern int OpenAndLock(const char* path, bool exclusive=true, bool create=false) noexcept;
+extern bool ExtendFile(int fd, size_t size) noexcept;
+
 class MemMap final {
 public:
 	MemMap() noexcept = default;
 	~MemMap() noexcept;
 
+	explicit MemMap(int fd, bool populate=false) noexcept;	// doesn't hold fd
 	explicit MemMap(const char* path, bool populate=false, bool exclusive=false, size_t size=0) noexcept;
 
 	struct LoadByCopy {};
@@ -60,6 +64,7 @@ public:
 	const uint8_t* end() const noexcept { return m_addr + m_size; }
 	bool operator!() const noexcept { return m_addr == nullptr; }
 	bool dump(const char* path) const noexcept;
+
 private:
 	MemMap(const MemMap&) noexcept = delete;
 	MemMap& operator=(const MemMap&) noexcept = delete;

@@ -18,6 +18,7 @@
 
 #include <cassert>
 #include <pthread.h>
+#include <unistd.h>
 #include <estuary.h>
 #include "internal.h"
 
@@ -692,24 +693,45 @@ Estuary Estuary::Load(size_t size, const std::function<bool(uint8_t*)>& load) {
   return out;
 }
 
-void Estuary::_init(MemMap&& res, bool monopoly, const char* path) {
+struct Offsets {
+	size_t lock = 0;
+	size_t table = 0;
+	size_t data = 0;
+};
+
+static bool GetOffsets(const MemMap& res, Offsets& offsets, bool strict=false) {
 	if (!res || res.size() < sizeof(Header)) {
+		return false;
+	}
+	auto meta = (Header*)res.addr();
+	offsets.lock = sizeof(Header);
+	offsets.table = ((offsets.lock+sizeof(Estuary::Lock)) & ~(sizeof(uintptr_t)-1ULL)) + sizeof(uintptr_t);
+	offsets.data = offsets.table + meta->total_entry * sizeof(Entry);
+	const auto data_end = offsets.data + meta->total_block * DATA_BLOCK_SIZE;
+	if (meta->magic != MAGIC
+			|| meta->total_entry < MIN_ENTRY || meta->total_entry > MAX_ENTRY
+			|| meta->total_block < meta->total_entry || meta->total_block > DATA_BLOCK_LIMIT
+			|| res.size() < data_end) {
+		return false;
+	}
+	if (strict) {
+		auto& mark = *(RecordMark*)&meta->kv_limit;
+		const auto reserved_block = RecordBlocks(mark.klen, mark.vlen) * 2;
+		return res.size() == data_end && meta->total_block > reserved_block;
+	}
+	return true;
+}
+
+void Estuary::_init(MemMap&& res, bool monopoly, const char* path) {
+	Offsets offsets;
+	if (!GetOffsets(res, offsets)) {
+		Logger::Printf("broken file: %s\n", path);
 		return;
 	}
 	auto meta = (Header*)res.addr();
-	auto lock_off = sizeof(Header);
-	auto table_off = ((lock_off+sizeof(Lock)) & ~(sizeof(uintptr_t)-1ULL)) + sizeof(uintptr_t);
-	auto data_off = table_off + meta->total_entry * sizeof(Entry);
-	if (meta->magic != MAGIC
-		|| meta->total_entry < MIN_ENTRY || meta->total_entry > MAX_ENTRY
-		|| meta->total_block < meta->total_entry || meta->total_block > DATA_BLOCK_LIMIT
-		|| res.size() < data_off + meta->total_block * DATA_BLOCK_SIZE) {
-    Logger::Printf("broken file: %s\n", path);
-		return;
-	}
 
 	std::unique_ptr<uint8_t[]> monopoly_extra;
-	auto lock = (Lock*)(res.addr() + lock_off);
+	auto lock = (Lock*)(res.addr() + offsets.lock);
 	if (monopoly) {
 		if (meta->writing) {
 			Logger::Printf("file is not saved correctly: %s\n", path);
@@ -724,8 +746,8 @@ void Estuary::_init(MemMap&& res, bool monopoly, const char* path) {
 	}
 
 	m_lock = lock;
-	m_table = (uint64_t*)(res.addr()+table_off);
-	m_data = res.addr()+data_off;
+	m_table = (uint64_t*)(res.addr()+offsets.table);
+	m_data = res.addr()+offsets.data;
 	auto& mark = *(RecordMark*)&meta->kv_limit;
 	m_const.max_key_len = mark.klen;
 	m_const.max_val_len = mark.vlen;
@@ -852,6 +874,73 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 	}
 
 	Rc(blk(meta->block_cursor)) = MarkForEmpty(meta->total_block - meta->block_cursor);
+	return true;
+}
+
+bool Estuary::Extend(const std::string& path, unsigned percent, Config* result) {
+	if (percent == 0 || percent > 100) {
+		return false;
+	}
+	int fd = OpenAndLock(path.c_str(), true, false);
+	if (fd < 0) {
+		return false;
+	}
+	MemMap res(fd);
+	Offsets offsets;
+	if (!GetOffsets(res, offsets, true)) {
+		Logger::Printf("broken file: %s\n", path.c_str());
+		close(fd);
+		return false;
+	}
+	auto meta = (Header*)res.addr();
+	if (meta->total_block == DATA_BLOCK_LIMIT) {
+		Logger::Printf("cannot extend: %s\n", path.c_str());
+		close(fd);
+		return false;
+	}
+	const size_t item_limit = ItemLimit(meta->total_entry);
+	auto& mark = *(RecordMark*)&meta->kv_limit;
+	const unsigned max_key_len = mark.klen;
+	const unsigned max_val_len = mark.vlen;
+	const auto reserved_block = RecordBlocks(mark.klen, mark.vlen) * 2;
+	auto block_cnt = meta->total_block - reserved_block;
+	auto extend_block = (block_cnt * percent + 99) / 100;
+
+	if (meta->total_block + extend_block > DATA_BLOCK_LIMIT) {
+		extend_block = DATA_BLOCK_LIMIT - meta->total_block;
+	}
+	res = MemMap();	//release
+	if (!ExtendFile(fd, extend_block*DATA_BLOCK_SIZE)) {
+		Logger::Printf("fail to extend: %s\n", path.c_str());
+		close(fd);
+		return false;
+	}
+	res = MemMap(fd);
+	if (!res) {
+		Logger::Printf("fail to fix up: %s\n", path.c_str());
+		close(fd);
+		return false;
+	}
+
+	meta = (Header*)res.addr();
+	auto data = res.addr() + offsets.data;
+	auto blk = [data](size_t idx)->uint8_t* {
+		return data + idx*DATA_BLOCK_SIZE;
+	};
+	Rc(blk(meta->total_block)) = MarkForEmpty(extend_block);
+
+	meta->total_block += extend_block;
+	meta->free_block += extend_block;
+	close(fd);
+
+	if (result != nullptr) {
+		result->max_key_len = max_key_len;
+		result->max_val_len = max_val_len;
+		result->item_limit = item_limit;
+		block_cnt += extend_block;
+		block_cnt -= block_cnt / DATA_RESERVE_FACTOR;
+		result->avg_item_size = block_cnt * DATA_BLOCK_SIZE / item_limit - sizeof(uint32_t);
+	}
 	return true;
 }
 

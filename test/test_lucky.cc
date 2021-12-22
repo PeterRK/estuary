@@ -78,6 +78,7 @@ TEST(LuckyEstuary, BuildAndRead) {
 }
 
 TEST(LuckyEstuary, Write) {
+	estuary::Logger::Bind(nullptr);
 	const std::string filename = "test.les";
 	constexpr unsigned PIECE = estuary::LuckyEstuary::MIN_CAPACITY;
 
@@ -93,7 +94,7 @@ TEST(LuckyEstuary, Write) {
 	auto dict = estuary::LuckyEstuary::Load(filename);
 	ASSERT_FALSE(!dict);
 
-	EmbeddingGenerator input2(0, PIECE*2+1, EmbeddingGenerator::MASK1);
+	EmbeddingGenerator input2(0, PIECE*2+2, EmbeddingGenerator::MASK1);
 	for (unsigned i = 0; i < PIECE; i++) {
 		auto rec = input2.read();
 		ASSERT_TRUE(dict.update(rec.key.ptr, rec.val.ptr));
@@ -142,6 +143,20 @@ TEST(LuckyEstuary, Write) {
 	ASSERT_FALSE(dict.erase(rec.key.ptr));
 	ASSERT_TRUE(dict.erase((const uint8_t*)keys.data()));
 	ASSERT_FALSE(dict.fetch((const uint8_t*)keys.data(), out.get()));
+	ASSERT_TRUE(dict.update(rec.key.ptr, rec.val.ptr));
+	ASSERT_TRUE(dict.fetch(rec.key.ptr, out.get()));
+	ASSERT_EQ(memcmp(out.get(), rec.val.ptr, rec.val.len), 0);
+
+	dict = estuary::LuckyEstuary();
+	estuary::LuckyEstuary::Config ext_cfg;
+	ASSERT_TRUE(estuary::LuckyEstuary::Extend(filename, 1, &ext_cfg));
+	ASSERT_EQ(ext_cfg.entry, config.entry);
+	ASSERT_GT(ext_cfg.capacity, config.capacity);
+
+	dict = estuary::LuckyEstuary::Load(filename);
+	ASSERT_FALSE(!dict);
+
+	rec = input2.read();
 	ASSERT_TRUE(dict.update(rec.key.ptr, rec.val.ptr));
 	ASSERT_TRUE(dict.fetch(rec.key.ptr, out.get()));
 	ASSERT_EQ(memcmp(out.get(), rec.val.ptr, rec.val.len), 0);

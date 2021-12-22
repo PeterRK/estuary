@@ -28,6 +28,42 @@
 
 namespace estuary {
 
+int OpenAndLock(const char* path, bool exclusive, bool create) noexcept {
+	int fd = -1;
+	if (create) {
+		fd = open(path, O_RDWR | O_CREAT, 0644);
+	} else {
+		fd = open(path, O_RDWR);
+	}
+	if (fd < 0) {
+		Logger::Printf("fail to open file: %s\n", path);
+		return fd;
+	}
+	if (flock(fd, LOCK_NB|(exclusive?LOCK_EX:LOCK_SH)) != 0) {
+		Logger::Printf("fail to lock file: %s\n", path);
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+bool ExtendFile(int fd, size_t size) noexcept {
+	if (size == 0 || size > 0x10000000000ULL) {
+		Logger::Printf("unexpected size: %lu\n", size);
+		return false;
+	}
+	struct stat stat;
+	if (fstat(fd, &stat) != 0 || stat.st_size <= 0) {
+		return false;
+	}
+	size += stat.st_size;
+	if (ftruncate64(fd, size) != 0) {
+		Logger::Printf("fail to extend file[%d]\n", errno);
+		return false;
+	}
+	return true;
+}
+
 struct DefaultLogger : public Logger {
 	void printf(const char* format, va_list args) override;
 	static DefaultLogger instance;
@@ -47,20 +83,24 @@ void Logger::Printf(const char* format, ... ) {
 	}
 }
 
-MemMap::MemMap(const char* path, bool populate, bool exclusive, size_t size) noexcept {
-	int fd = -1;
-	if (size == 0) {
-		fd = open(path, O_RDWR);
-	} else {
-		fd = open(path, O_RDWR | O_CREAT, 0644);
-	}
-	if (fd < 0) {
-		Logger::Printf("fail to open file: %s\n", path);
+MemMap::MemMap(int fd, bool populate) noexcept {
+	struct stat stat;
+	if (fstat(fd, &stat) != 0 || stat.st_size <= 0) {
 		return;
 	}
-	if (flock(fd, LOCK_NB|(exclusive?LOCK_EX:LOCK_SH)) != 0) {
-		Logger::Printf("fail to lock file: %s\n", path);
-		close(fd);
+	const size_t size = stat.st_size;
+	auto addr = mmap(nullptr, size, PROT_READ|PROT_WRITE,
+									 populate? MAP_SHARED|MAP_POPULATE : MAP_SHARED, fd, 0);
+	if (addr == MAP_FAILED) {
+		return;
+	}
+	m_addr = static_cast<uint8_t*>(addr);
+	m_size = size;
+}
+
+MemMap::MemMap(const char* path, bool populate, bool exclusive, size_t size) noexcept {
+	int fd = OpenAndLock(path, exclusive, size != 0);
+	if (fd < 0) {
 		return;
 	}
 	if (size == 0) {
@@ -92,7 +132,7 @@ MemMap::MemMap(const char* path, bool populate, bool exclusive, size_t size) noe
 static inline constexpr size_t RoundUp(size_t n) {
 	constexpr size_t m = 0x1fffff;
 	return (n+m)&(~m);
-};
+}
 
 static bool Read(int fd, uint8_t* data, size_t size) noexcept {
 	constexpr size_t block = 16*1024*1024;
@@ -114,14 +154,8 @@ static bool Read(int fd, uint8_t* data, size_t size) noexcept {
 }
 
 MemMap::MemMap(const char* path, LoadByCopy) {
-	auto fd = open(path, O_RDWR);
+	int fd = OpenAndLock(path, true, false);
 	if (fd < 0) {
-		Logger::Printf("fail to open file: %s\n", path);
-		return;
-	}
-	if (flock(fd, LOCK_NB|LOCK_EX) != 0) {
-		Logger::Printf("fail to lock file: %s\n", path);
-		close(fd);
 		return;
 	}
 	struct stat stat;
@@ -163,14 +197,15 @@ MemMap::MemMap(size_t size, const std::function<bool(uint8_t*)>& load) {
   }
   m_addr = static_cast<uint8_t*>(addr);
   m_size = size;
+	m_fd = -2;
 }
 
 MemMap::~MemMap() noexcept {
 	if (m_addr != nullptr) {
-		auto size = m_fd >= 0? m_size : RoundUp(m_size);
+		auto size = m_fd >= -1? m_size : RoundUp(m_size);
 		if (munmap(m_addr, size) != 0) {
 			Logger::Printf("fail to munmap[%d]: %p | %lu\n", errno, m_addr, m_size);
-		};
+		}
 	}
 	if (m_fd >= 0) {
 		close(m_fd);

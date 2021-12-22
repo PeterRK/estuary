@@ -69,8 +69,8 @@ public:
 	static constexpr unsigned MAX_KEY_LEN = UINT8_MAX;
 	static constexpr unsigned MAX_VAL_LEN = UINT16_MAX+1;
 	static constexpr size_t MIN_CAPACITY = UINT16_MAX+1;
-	static constexpr size_t MAX_CAPACITY = UINT32_MAX-MIN_CAPACITY;
-	static constexpr unsigned MAX_LOAD_FACTOR = 2;
+	static constexpr size_t MAX_CAPACITY = UINT32_MAX-(UINT16_MAX+1);
+	static constexpr size_t MAX_LOAD_FACTOR = 2;
 	struct Config {
 		uint32_t entry = MIN_CAPACITY;
 		uint32_t capacity = MIN_CAPACITY;
@@ -82,6 +82,10 @@ public:
 	enum LoadPolicy {SHARED, MONOPOLY, COPY_DATA};
 	static LuckyEstuary Load(const std::string& path, LoadPolicy policy=MONOPOLY);
   static LuckyEstuary Load(size_t size, const std::function<bool(uint8_t*)>& load);
+
+	// only capacity can be extended, entry cannot
+	// percent should be 1-100
+	static bool Extend(const std::string& path, unsigned percent, Config* result=nullptr);
 
 	bool dump(const std::string& path) const noexcept {
 		return m_resource.dump(path.c_str());

@@ -23,6 +23,7 @@
 #include <chrono>
 #include <algorithm>
 #include <pthread.h>
+#include <unistd.h>
 #include <lucky_estuary.h>
 #include "internal.h"
 
@@ -382,28 +383,52 @@ LuckyEstuary LuckyEstuary::Load(size_t size, const std::function<bool(uint8_t*)>
   return out;
 }
 
-void LuckyEstuary::_init(MemMap&& res, bool monopoly, const char* path) {
-	if (!res || res.size() < sizeof(Meta)) {
-		return;
+struct Offsets {
+	size_t lock = 0;
+	size_t stamps = 0;
+	size_t recycle = 0;
+	size_t table = 0;
+	size_t data = 0;
+};
+
+static bool GetOffsets(const MemMap& res, Offsets& offsets, bool strict=false) {
+	if (!res || res.size() < sizeof(Header)) {
+		return false;
 	}
-	auto meta = (Meta*)res.addr();
-	const auto lock_off = sizeof(Meta);
-	const auto stamps_off = lock_off + sizeof(pthread_mutex_t);
-	const auto recycle_off = stamps_off + sizeof(int64_t) * (RECYCLE_CAPACITY/RECYCLE_BIN_SIZE);
-	const auto table_off = recycle_off + sizeof(uint32_t) * RECYCLE_CAPACITY;
-	const auto data_off = table_off + sizeof(uint32_t) * meta->total_entry;
+	auto meta = (Header*) res.addr();
+	offsets.lock = sizeof(Header);
+	offsets.stamps = offsets.lock + sizeof(pthread_mutex_t);
+	offsets.recycle = offsets.stamps + sizeof(int64_t) * (RECYCLE_CAPACITY/RECYCLE_BIN_SIZE);
+	offsets.table = offsets.recycle + sizeof(uint32_t) * RECYCLE_CAPACITY;
+	offsets.data = offsets.table + sizeof(uint32_t) * meta->total_entry;
 	const auto item_size = ItemSize(meta->key_len, meta->val_len);
 	const auto capacity = meta->capacity + RECYCLE_CAPACITY;
-	if (meta->magic != MAGIC || meta->key_len == 0 || meta->val_len > MAX_VAL_LEN
-		|| meta->capacity < MIN_CAPACITY || meta->capacity > MAX_CAPACITY
-		|| meta->total_entry == 0 || meta->capacity/meta->total_entry > MAX_LOAD_FACTOR
-		|| res.size() < data_off + item_size * capacity) {
+	const auto data_end = offsets.data + item_size * capacity;
+	if (meta->magic != MAGIC || meta->key_len == 0 || meta->val_len > LuckyEstuary::MAX_VAL_LEN
+			|| meta->capacity < LuckyEstuary::MIN_CAPACITY || meta->capacity > LuckyEstuary::MAX_CAPACITY
+			|| meta->total_entry == 0 || meta->capacity > meta->total_entry * LuckyEstuary::MAX_LOAD_FACTOR
+			|| res.size() < data_end) {
+		return false;
+	}
+	if (strict) {
+		return res.size() == data_end
+			&& (meta->free_list.head==Node::END) == (meta->free_list.tail==Node::END);
+	}
+	return true;
+}
+
+void LuckyEstuary::_init(MemMap&& res, bool monopoly, const char* path) {
+	Offsets offsets;
+	if (!GetOffsets(res, offsets)) {
 		Logger::Printf("broken file: %s\n", path);
 		return;
 	}
+	auto meta = (Header*)res.addr();
+	const auto item_size = ItemSize(meta->key_len, meta->val_len);
+	assert(item_size >= sizeof(Node));
 
 	std::unique_ptr<uint8_t[]> monopoly_extra;
-	auto lock = (Lock*)(res.addr() + lock_off);
+	auto lock = (Lock*)(res.addr() + offsets.lock);
 	if (monopoly) {
 		if (meta->writing) {
 			Logger::Printf("file is not saved correctly: %s\n", path);
@@ -417,14 +442,12 @@ void LuckyEstuary::_init(MemMap&& res, bool monopoly, const char* path) {
 		}
 	}
 
-	assert(item_size >= sizeof(Node));
-
 	m_meta = meta;
 	m_lock = lock;
-	m_stamps = (int64_t*)(res.addr()+stamps_off);
-	m_recycle = (uint32_t*)(res.addr()+recycle_off);
-	m_table = (uint32_t*)(res.addr()+table_off);
-	m_data = res.addr()+data_off;
+	m_stamps = (int64_t*)(res.addr()+offsets.stamps);
+	m_recycle = (uint32_t*)(res.addr()+offsets.recycle);
+	m_table = (uint32_t*)(res.addr()+offsets.table);
+	m_data = res.addr()+offsets.data;
 	m_monopoly_extra = std::move(monopoly_extra);
 	m_resource = std::move(res);
 	m_const.key_len = meta->key_len;
@@ -437,19 +460,19 @@ void LuckyEstuary::_init(MemMap&& res, bool monopoly, const char* path) {
 
 bool LuckyEstuary::Create(const std::string& path, const Config& config, IDataReader* source) {
 	if (config.capacity < MIN_CAPACITY || config.capacity > MAX_CAPACITY
-		|| config.entry == 0 || config.capacity/config.entry > MAX_LOAD_FACTOR
+		|| config.entry == 0 || config.capacity > config.entry * MAX_LOAD_FACTOR
 		|| config.key_len == 0 || config.key_len > MAX_KEY_LEN || config.val_len > MAX_VAL_LEN) {
 		Logger::Printf("bad arguments\n");
 		return false;
 	}
-	Meta header;
+	Header header;
 	header.key_len = config.key_len;
 	header.val_len = config.val_len;
 	header.total_entry = config.entry;
 	header.capacity = config.capacity;
 	header.seed = GetSeed();
 
-	static_assert(sizeof(Meta) % sizeof(uintptr_t) == 0, "alignment check");
+	static_assert(sizeof(Header) % sizeof(uintptr_t) == 0, "alignment check");
 
 	const auto item_size = ItemSize(header.key_len, header.val_len);
 	const auto capacity = header.capacity + RECYCLE_CAPACITY;
@@ -469,7 +492,7 @@ bool LuckyEstuary::Create(const std::string& path, const Config& config, IDataRe
 	if (!res) {
 		return false;
 	}
-	auto meta = (Meta*)res.addr();
+	auto meta = (Header*)res.addr();
 	auto lock = (Lock*)(res.addr() + lock_off);
 	auto recycle = (uint32_t*)(res.addr()+recycle_off);
 	auto table = (uint32_t*)(res.addr()+table_off);
@@ -542,6 +565,83 @@ bool LuckyEstuary::Create(const std::string& path, const Config& config, IDataRe
 		node->free = ++cnt;
 	}
 	get_node(capacity-1)->free = Node::END;
+	return true;
+}
+
+bool LuckyEstuary::Extend(const std::string& path, unsigned percent, Config* result) {
+	if (percent == 0 || percent > 100) {
+		return false;
+	}
+	int fd = OpenAndLock(path.c_str(), true, false);
+	if (fd < 0) {
+		return false;
+	}
+	MemMap res(fd);
+	Offsets offsets;
+	if (!GetOffsets(res, offsets, true)) {
+		Logger::Printf("broken file: %s\n", path.c_str());
+		close(fd);
+		return false;
+	}
+	auto meta = (Header*)res.addr();
+	const auto max_cap = std::min(MAX_CAPACITY, meta->total_entry * MAX_LOAD_FACTOR);
+	if (meta->capacity == max_cap) {
+		Logger::Printf("cannot extend: %s\n", path.c_str());
+		close(fd);
+		return false;
+	}
+	const auto item_size = ItemSize(meta->key_len, meta->val_len);
+	auto next = meta->capacity + RECYCLE_CAPACITY;
+	auto extend = (meta->capacity * percent + 99) / 100;
+
+	if (meta->capacity + extend > max_cap) {
+		extend = max_cap - meta->capacity;
+	}
+	res = MemMap();	//release
+	if (!ExtendFile(fd, extend*item_size)) {
+		Logger::Printf("fail to extend: %s\n", path.c_str());
+		close(fd);
+		return false;
+	}
+	res = MemMap(fd);
+	if (!res) {
+		Logger::Printf("fail to fix up: %s\n", path.c_str());
+		close(fd);
+		return false;
+	}
+	const auto capacity = next + extend;
+
+	meta = (Header*)res.addr();
+	auto data = res.addr() + offsets.data;
+	auto get_node = [data, item_size](uint32_t idx)->Node* {
+		return (Node*)(data + idx*item_size);
+	};
+
+	auto head = next;
+	while (next < capacity) {
+		auto node = get_node(next);
+		node->next = Node::END;
+		node->free = ++next;
+	}
+	get_node(capacity-1)->free = Node::END;
+
+	if (meta->free_list.tail == Node::END) {
+		meta->free_list.head = head;
+	} else {
+		auto tail = get_node(meta->free_list.tail);
+		tail->free = head;
+	}
+	meta->free_list.tail = capacity-1;
+
+	meta->capacity += extend;
+	close(fd);
+
+	if (result != nullptr) {
+		result->entry = meta->total_entry;
+		result->capacity = meta->capacity;
+		result->key_len = meta->key_len;
+		result->val_len = meta->val_len;
+	}
 	return true;
 }
 

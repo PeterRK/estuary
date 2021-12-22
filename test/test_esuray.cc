@@ -23,7 +23,7 @@
 
 static constexpr unsigned PIECE = 1000;
 
-estuary::Estuary::Config CONFIG = {
+const estuary::Estuary::Config CONFIG = {
 	.item_limit = PIECE,
 	.max_key_len = sizeof(uint64_t),
 	.max_val_len = UINT8_MAX,
@@ -56,10 +56,16 @@ TEST(Estuary, BuildAndRead) {
 }
 
 TEST(Estuary, Update) {
+	estuary::Logger::Bind(nullptr);
 	const std::string filename = "update.es";
 
 	VariedValueGenerator input1(0, PIECE, 5);
 	ASSERT_TRUE(estuary::Estuary::Create(filename, CONFIG, &input1));
+
+	estuary::Estuary::Config ext_cfg;
+	ASSERT_TRUE(estuary::Estuary::Extend(filename, 1, &ext_cfg));
+	ASSERT_EQ(ext_cfg.item_limit, CONFIG.item_limit);
+	ASSERT_GT(ext_cfg.avg_item_size, CONFIG.avg_item_size);
 
 	auto dict = estuary::Estuary::Load(filename);
 	ASSERT_FALSE(!dict);
@@ -106,6 +112,7 @@ TEST(Estuary, Update) {
 }
 
 TEST(Estuary, Erase) {
+	estuary::Logger::Bind(nullptr);
 	const std::string filename = "erase.es";
 
 	ASSERT_TRUE(estuary::Estuary::Create(filename, CONFIG));
