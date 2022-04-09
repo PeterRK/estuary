@@ -780,8 +780,10 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 
 	header.total_entry = TotalEntry(config.item_limit);
 	header.clean_entry = header.total_entry;
-	auto block_per_item = ((config.avg_item_size + sizeof(uint32_t)) + (DATA_BLOCK_SIZE - 1)) / DATA_BLOCK_SIZE;
-	header.total_block = block_per_item * (config.item_limit + 1);
+	auto avg_item_size = config.avg_item_size + sizeof(uint32_t);
+	//round up with half block unless avg_item_size is too small
+	header.total_block = std::max(config.item_limit+1,
+				(avg_item_size + DATA_BLOCK_SIZE/2) * (config.item_limit+1) / DATA_BLOCK_SIZE);
 	const auto init_end = header.total_block;
 	header.total_block += header.total_block / (DATA_RESERVE_FACTOR-1) + 1;
 	header.total_block += RecordBlocks(config.max_key_len, config.max_val_len) * 2;
@@ -939,7 +941,8 @@ bool Estuary::Extend(const std::string& path, unsigned percent, Config* result) 
 		result->item_limit = item_limit;
 		block_cnt += extend_block;
 		block_cnt -= block_cnt / DATA_RESERVE_FACTOR;
-		result->avg_item_size = block_cnt * DATA_BLOCK_SIZE / item_limit - sizeof(uint32_t);
+		result->avg_item_size = (block_cnt * DATA_BLOCK_SIZE
+				- item_limit * (DATA_BLOCK_SIZE/2)) / item_limit - sizeof(uint32_t);
 	}
 	return true;
 }
