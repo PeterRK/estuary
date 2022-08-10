@@ -31,7 +31,7 @@ const char* DataException::what() const noexcept {
 	return "broken data";
 }
 
-static constexpr uint32_t MAGIC = 0xE998;
+static constexpr uint16_t MAGIC = 0xE998;
 struct Estuary::Meta {
 	uint16_t magic = MAGIC;
 	uint8_t _pad = 0;
