@@ -193,6 +193,10 @@ static FORCE_INLINE size_t RecordBlocks(size_t klen, size_t vlen) {
 static FORCE_INLINE size_t RecordBlocks(uint8_t* block) {
 	return RecordBlocks(Rc(block).klen, Rc(block).vlen);
 }
+static FORCE_INLINE unsigned PaddingSize(size_t klen, size_t vlen) {
+	size_t len = sizeof(uint32_t) + klen + vlen;
+	return ((len+(DATA_BLOCK_SIZE-1)) & ~(DATA_BLOCK_SIZE-1)) - len;
+}
 
 static FORCE_INLINE uint64_t CalcTip(uint8_t* block) {
 	auto mark = Rc(block);
@@ -663,34 +667,34 @@ Estuary::~Estuary() noexcept {
 }
 
 Estuary Estuary::Load(const std::string& path, LoadPolicy policy) {
-  Estuary out;
-  MemMap res;
-  switch (policy) {
-    case SHARED:
-      res = MemMap(path.c_str(), true, false);
-      break;
-    case MONOPOLY:
-      res = MemMap(path.c_str(), true, true);
-      break;
-    case COPY_DATA:
-      res = MemMap(path.c_str(), MemMap::load_by_copy);
-      break;
-    default:
-      return out;
-  }
-  if (!!res) {
-    out._init(std::move(res), policy!=SHARED, path.c_str());
-  }
-  return out;
+	Estuary out;
+	MemMap res;
+	switch (policy) {
+		case SHARED:
+			res = MemMap(path.c_str(), true, false);
+			break;
+		case MONOPOLY:
+			res = MemMap(path.c_str(), true, true);
+			break;
+		case COPY_DATA:
+			res = MemMap(path.c_str(), MemMap::load_by_copy);
+			break;
+		default:
+			return out;
+	}
+	if (!!res) {
+		out._init(std::move(res), policy!=SHARED, path.c_str());
+	}
+	return out;
 }
 
 Estuary Estuary::Load(size_t size, const std::function<bool(uint8_t*)>& load) {
-  Estuary out;
-  MemMap res(size, load);
-  if (!!res) {
-    out._init(std::move(res), true, "...");
-  }
-  return out;
+	Estuary out;
+	MemMap res(size, load);
+	if (!!res) {
+		out._init(std::move(res), true, "...");
+	}
+	return out;
 }
 
 struct Offsets {
@@ -709,9 +713,9 @@ static bool GetOffsets(const MemMap& res, Offsets& offsets, bool strict=false) {
 	offsets.data = offsets.table + meta->total_entry * sizeof(Entry);
 	const auto data_end = offsets.data + meta->total_block * DATA_BLOCK_SIZE;
 	if (meta->magic != MAGIC
-			|| meta->total_entry < MIN_ENTRY || meta->total_entry > MAX_ENTRY
-			|| meta->total_block < meta->total_entry || meta->total_block > DATA_BLOCK_LIMIT
-			|| res.size() < data_end) {
+		|| meta->total_entry < MIN_ENTRY || meta->total_entry > MAX_ENTRY
+		|| meta->total_block < meta->total_entry || meta->total_block > DATA_BLOCK_LIMIT
+		|| res.size() < data_end) {
 		return false;
 	}
 	if (strict) {
@@ -763,14 +767,9 @@ void Estuary::_init(MemMap&& res, bool monopoly, const char* path) {
 	m_meta = meta;
 }
 
-bool Estuary::Create(const std::string& path, const Config& config, IDataReader* source) {
-	if (TotalEntry(config.item_limit) < MIN_ENTRY || TotalEntry(config.item_limit) > MAX_ENTRY
-      || config.max_key_len == 0 || config.max_key_len > MAX_KEY_LEN
-      || config.max_val_len == 0 || config.max_val_len > MAX_VAL_LEN
-      || config.avg_item_size < 2 || config.avg_item_size > config.max_key_len + config.max_val_len) {
-		Logger::Printf("bad arguments\n");
-		return false;
-	}
+// return 0 means success, -1 means fail, 1~(DATA_BLOCK_SIZE-1) means retry
+static int DoCreate(const std::string& path, const Estuary::Config& config,
+					size_t total_block, IDataReader* source) {
 	Header header;
 	((RecordMark*)&header.kv_limit)->klen = config.max_key_len;
 	((RecordMark*)&header.kv_limit)->vlen = config.max_val_len;
@@ -780,22 +779,19 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 
 	header.total_entry = TotalEntry(config.item_limit);
 	header.clean_entry = header.total_entry;
-	auto avg_item_size = config.avg_item_size + sizeof(uint32_t);
-	//round up with half block unless avg_item_size is too small
-	header.total_block = std::max(config.item_limit+1,
-				(avg_item_size + DATA_BLOCK_SIZE/2) * (config.item_limit+1) / DATA_BLOCK_SIZE);
+	header.total_block = std::max(config.item_limit+1, total_block);
 	const auto init_end = header.total_block;
 	header.total_block += header.total_block / (DATA_RESERVE_FACTOR-1) + 1;
 	header.total_block += RecordBlocks(config.max_key_len, config.max_val_len) * 2;
 	if (header.total_block > DATA_BLOCK_LIMIT) {
 		Logger::Printf("too big\n");
-		return false;
+		return -1;
 	}
 	header.free_block = header.total_block;
 
 	size_t size = sizeof(header);
 	const auto lock_off = size;
-	size += sizeof(Lock);
+	size += sizeof(Estuary::Lock);
 	size = (size & ~(sizeof(uintptr_t)-1ULL)) + sizeof(uintptr_t);
 	const auto table_off = size;
 	size += header.total_entry * sizeof(Entry);
@@ -804,10 +800,10 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 
 	MemMap res(path.c_str(), false, true, size);
 	if (!res) {
-		return false;
+		return -1;
 	}
 	auto meta = (Header*)res.addr();
-	auto lock = (Lock*)(res.addr()+lock_off);
+	auto lock = (Estuary::Lock*)(res.addr()+lock_off);
 	auto table = (uint64_t*)(res.addr()+table_off);
 	auto data = res.addr() + data_off;
 
@@ -818,65 +814,97 @@ bool Estuary::Create(const std::string& path, const Config& config, IDataReader*
 	*meta = header;
 	if (!InitLock(lock)) {
 		Logger::Printf("fail to init\n");
-		return false;
+		return -1;
 	}
 	for (size_t i = 0; i < header.total_entry; i++) {
 		*(Entry*)(table+i) = CLEAN_ENTRY;
 	}
 
 	if (source != nullptr) {
+		size_t padding_count[DATA_BLOCK_SIZE];
+		for (unsigned j = 0; j < DATA_BLOCK_SIZE; j++) {
+			padding_count[j] = 0;
+		}
+
 		Divisor<uint64_t> total_entry(header.total_entry);
 		source->reset();
 		auto total = source->total();
 		if (total > config.item_limit) {
 			Logger::Printf("too many items\n");
-			return false;
+			return -1;
 		}
 		for (size_t i = 0; i < total; i++) {
 			auto rec = source->read();
 			if (rec.key.ptr == nullptr || rec.key.len == 0 || rec.key.len > config.max_key_len
 				|| (rec.val.len != 0 && rec.val.ptr == nullptr) || rec.val.len > config.max_val_len) {
 				Logger::Printf("broken item\n");
-				return false;
+				return -1;
 			}
+			padding_count[PaddingSize(rec.key.len, rec.val.len)]++;
+
 			bool done = false;
 			SearchInTable([&rec, meta, &blk, init_end, &done](Entry& ent, uint32_t tag, size_t off)->bool{
-					const auto e = ent;
-					if (IsEmpty(e)) {
-						meta->item++;
-						meta->clean_entry--;
-					} else if (e.tag == tag && KeyMatch(rec.key, blk(e.blk))) {
-						const auto bcnt = RecordBlocks(blk(e.blk));
-						Rc(blk(e.blk)) = MarkForEmpty(bcnt);
-						meta->free_block += bcnt;
-					} else {
-						return false;
-					}
-					auto bcnt = RecordBlocks(rec.key.len, rec.val.len);
-					auto block = blk(meta->block_cursor);
-					ent = Entry(meta->block_cursor, 0, tag, off);
-					meta->block_cursor += bcnt;
-					if (meta->block_cursor > init_end) {
-						Logger::Printf("out of data capacity\n");
-						return true;
-					}
-					meta->free_block -= bcnt;
-					Rc(block).klen = rec.key.len;
-					Rc(block).vlen = rec.val.len;
-					memcpy(RcKey(block), rec.key.ptr, rec.key.len);
-					memcpy(RcVal(block), rec.val.ptr, rec.val.len);
-					ent.tip = CalcTip(block);
-					done = true;
+				const auto e = ent;
+				if (IsEmpty(e)) {
+					meta->item++;
+					meta->clean_entry--;
+				} else if (e.tag == tag && KeyMatch(rec.key, blk(e.blk))) {
+					const auto bcnt = RecordBlocks(blk(e.blk));
+					Rc(blk(e.blk)) = MarkForEmpty(bcnt);
+					meta->free_block += bcnt;
+				} else {
+					return false;
+				}
+				auto bcnt = RecordBlocks(rec.key.len, rec.val.len);
+				auto block = blk(meta->block_cursor);
+				ent = Entry(meta->block_cursor, 0, tag, off);
+				meta->block_cursor += bcnt;
+				if (meta->block_cursor > init_end) {
+					Logger::Printf("out of data capacity\n");
 					return true;
+				}
+				meta->free_block -= bcnt;
+				Rc(block).klen = rec.key.len;
+				Rc(block).vlen = rec.val.len;
+				memcpy(RcKey(block), rec.key.ptr, rec.key.len);
+				memcpy(RcVal(block), rec.val.ptr, rec.val.len);
+				ent.tip = CalcTip(block);
+				done = true;
+				return true;
 				}, Hash(rec.key.ptr, rec.key.len, header.seed), (Entry*)table, total_entry);
 			if (UNLIKELY(!done)) {
-				return false;
+				size_t sum = 0;
+				for (unsigned j = 1; j < DATA_BLOCK_SIZE; j++) {
+					sum += padding_count[j] * j;
+				}
+				return static_cast<int>((sum+i)/(i+1));
 			}
 		}
 	}
 
 	Rc(blk(meta->block_cursor)) = MarkForEmpty(meta->total_block - meta->block_cursor);
-	return true;
+	return 0;
+}
+
+bool Estuary::Create(const std::string& path, const Config& config, IDataReader* source) {
+	if (TotalEntry(config.item_limit) < MIN_ENTRY || TotalEntry(config.item_limit) > MAX_ENTRY
+		|| config.max_key_len == 0 || config.max_key_len > MAX_KEY_LEN
+		|| config.max_val_len == 0 || config.max_val_len > MAX_VAL_LEN
+		|| config.avg_item_size < 2 || config.avg_item_size > config.max_key_len + config.max_val_len) {
+		Logger::Printf("bad arguments\n");
+		return false;
+	}
+
+	auto avg_item_size = config.avg_item_size + sizeof(uint32_t);
+	//round up with half block unless avg_item_size is too small
+	size_t total_block = (avg_item_size + DATA_BLOCK_SIZE/2) * (config.item_limit+1) / DATA_BLOCK_SIZE;
+	auto ret = DoCreate(path, config, total_block, source);
+	if (ret > static_cast<int>(DATA_BLOCK_SIZE/2)) {
+		Logger::Printf("retry with more space\n");
+		total_block = (avg_item_size + ret) * (config.item_limit+1) / DATA_BLOCK_SIZE;
+		ret = DoCreate(path, config, total_block, source);
+	}
+	return ret == 0;
 }
 
 bool Estuary::Extend(const std::string& path, unsigned percent, Config* result) {
