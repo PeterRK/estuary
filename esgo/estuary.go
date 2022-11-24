@@ -149,8 +149,14 @@ func getValLen(mark uint32) uint32 {
 	return mark >> 8
 }
 
+func calcPadding(keyLen, valLen int) uint64 {
+	sz := uint64(keyLen+valLen) + 4
+	return (sz+BlockSize-1) & ^(BlockSize-1) - sz
+}
+
 func calcBlock(keyLen, valLen uint32) uint64 {
-	return (uint64(keyLen+valLen) + 4 + BlockSize - 1) / BlockSize
+	sz := uint64(keyLen+valLen) + 4
+	return (sz + BlockSize - 1) / BlockSize
 }
 
 func calcBlockFromMark(mark uint32) uint64 {
@@ -567,8 +573,6 @@ func fiilRecord(key, val, dest []byte) uint64 {
 	return hash(uint64(mark), dest[4:end])
 }
 
-//func (es *Estuary)
-
 type Reader interface {
 	io.Reader
 	Size() int
@@ -723,6 +727,7 @@ func LoadFile(filename string) (*Estuary, error) {
 type Source interface {
 	Get() (key, val []byte)
 	Total() int
+	Reset()
 }
 
 type Config struct {
@@ -732,22 +737,9 @@ type Config struct {
 	AvgItemSize uint32
 }
 
-func Create(filename string, cfg *Config, src Source) error {
-	if calcTotalEntry(cfg.ItemLimit) < MinEntry || calcTotalEntry(cfg.ItemLimit) > MaxEntry ||
-		cfg.MaxKeyLen == 0 || cfg.MaxKeyLen >= (uint32(1)<<8) ||
-		cfg.MaxValLen == 0 || cfg.MaxValLen >= (uint32(1)<<24) ||
-		cfg.AvgItemSize < 2 || cfg.AvgItemSize > cfg.MaxKeyLen+cfg.MaxValLen {
-		return errors.New("illegal config")
-	}
+var errOutOfCapacity = errors.New("out of capacity")
 
-	total := 0
-	if src != nil {
-		total = src.Total()
-		if total < 0 || total > int(cfg.ItemLimit) {
-			return errors.New("bad source")
-		}
-	}
-
+func create(filename string, cfg *Config, totalBlock uint64, src Source) (uint64, error) {
 	header := metaInfo{
 		magic:       MAGIC,
 		kvLimit:     markforRecord(int(cfg.MaxKeyLen), int(cfg.MaxValLen)),
@@ -762,7 +754,7 @@ func Create(filename string, cfg *Config, src Source) error {
 	header.totalBlock += header.totalBlock/(DataReserveFactor-1) + 1
 	header.totalBlock += calcBlock(cfg.MaxKeyLen, cfg.MaxValLen) * 2
 	if header.totalBlock > ReservedAddr {
-		return errors.New("too big")
+		return 0, errors.New("too big")
 	}
 	header.cleanEntry = header.totalEntry
 	header.freeBlock = header.totalBlock
@@ -772,17 +764,17 @@ func Create(filename string, cfg *Config, src Source) error {
 	fd, err := syscall.Open(filename,
 		syscall.O_CREAT|syscall.O_TRUNC|syscall.O_RDWR, 0644)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer syscall.Close(fd)
 
 	if err = syscall.Ftruncate(fd, int64(size)); err != nil {
-		return err
+		return 0, err
 	}
 	space, err := syscall.Mmap(fd, 0, size,
 		syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer syscall.Munmap(space)
 
@@ -793,10 +785,19 @@ func Create(filename string, cfg *Config, src Source) error {
 		table[i] = CleanEntry
 	}
 
+	total := 0
+	if src != nil {
+		total = src.Total()
+		if total < 0 || total > int(cfg.ItemLimit) {
+			return 0, errors.New("bad source")
+		}
+	}
+	paddingSum := uint64(0)
+
 	for i := 0; i < total; i++ {
 		key, val := src.Get()
 		if len(key) == 0 || len(key) > int(cfg.MaxKeyLen) || len(val) > int(cfg.MaxValLen) {
-			return errors.New("bad source")
+			return 0, errors.New("bad source")
 		}
 		code := hash(meta.seed, key)
 		tag := cutTag(code)
@@ -824,11 +825,12 @@ func Create(filename string, cfg *Config, src Source) error {
 			continue
 		addOne:
 			bcnt := calcBlock(uint32(len(key)), uint32(len(val)))
+			paddingSum += calcPadding(len(key), len(val))
 			off := meta.blockCursor * BlockSize
 			neo := meta.blockCursor
 			meta.blockCursor += bcnt
 			if meta.blockCursor > initEnd {
-				return errors.New("out of capacity")
+				return paddingSum/uint64(i+1) + 1, errOutOfCapacity
 			}
 			meta.freeBlock -= bcnt
 			tip := fiilRecord(key, val, data[off:])
@@ -839,7 +841,25 @@ func Create(filename string, cfg *Config, src Source) error {
 
 	off := meta.blockCursor * BlockSize
 	*cast[uint64](&data[off]) = markFormEmpty(meta.totalBlock - meta.blockCursor)
-	return nil
+	return 0, nil
+}
+
+func Create(filename string, cfg *Config, src Source) error {
+	if calcTotalEntry(cfg.ItemLimit) < MinEntry || calcTotalEntry(cfg.ItemLimit) > MaxEntry ||
+		cfg.MaxKeyLen == 0 || cfg.MaxKeyLen >= (uint32(1)<<8) ||
+		cfg.MaxValLen == 0 || cfg.MaxValLen >= (uint32(1)<<24) ||
+		cfg.AvgItemSize < 2 || cfg.AvgItemSize > cfg.MaxKeyLen+cfg.MaxValLen {
+		return errors.New("illegal config")
+	}
+
+	avgItemSize := uint64(cfg.AvgItemSize + 4)
+	totalBlock := (avgItemSize + BlockSize/2) * (cfg.ItemLimit + 1) / BlockSize
+	padding, err := create(filename, cfg, totalBlock, src)
+	if err == errOutOfCapacity && padding > BlockSize/2 {
+		totalBlock = (avgItemSize + padding) * (cfg.ItemLimit + 1) / BlockSize
+		_, err = create(filename, cfg, totalBlock, src)
+	}
+	return err
 }
 
 func Extend(filename string, percent int, cfg *Config) error {

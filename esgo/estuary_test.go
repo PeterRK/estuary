@@ -33,7 +33,7 @@ func (g *generator) init(begin, total uint64, shift uint8) {
 	g.shift = shift
 }
 
-func (g *generator) reset() {
+func (g *generator) Reset() {
 	g.curr = g.begin - 1
 }
 
@@ -71,7 +71,7 @@ func TestBuildAndRead(t *testing.T) {
 	assert(t, dict.MaxValLen() == tCfg.MaxValLen)
 	assert(t, dict.Item() == tPiece)
 
-	src.reset()
+	src.Reset()
 	for i := 0; i < tPiece; i++ {
 		key, val := src.Get()
 		rVal, got := dict.Fetch(key)
@@ -84,7 +84,7 @@ func TestBuildAndRead(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	const filename = "Update.es"
+	const filename = "update.es"
 
 	var src1, src2 = &generator{}, &generator{}
 	src1.init(0, tPiece, 5)
@@ -99,7 +99,7 @@ func TestUpdate(t *testing.T) {
 	assert(t, err == nil && dict.Valid())
 	defer dict.Destroy()
 
-	src1.reset()
+	src1.Reset()
 	for i := 0; i < tPiece; i++ {
 		key, _ := src1.Get()
 		if i%2 != 0 {
@@ -113,13 +113,13 @@ func TestUpdate(t *testing.T) {
 		assert(t, dict.Update(key, val))
 	}
 
-	src1.reset()
+	src1.Reset()
 	key, val := src1.Get()
 	rVal, got := dict.Fetch(key)
 	assert(t, got)
 	assert(t, bytes.Equal(val, rVal))
 
-	src2.reset()
+	src2.Reset()
 	for i := 1; i < tPiece; i++ {
 		key, val = src2.Get()
 		rVal, got := dict.Fetch(key)
@@ -131,7 +131,7 @@ func TestUpdate(t *testing.T) {
 		assert(t, dict.Update(eKey, eVal))
 	}
 
-	src1.reset()
+	src1.Reset()
 	for i := 0; i < tPiece; i++ {
 		key, val := src1.Get()
 		rVal, got := dict.Fetch(key)
@@ -168,7 +168,7 @@ func TestErase(t *testing.T) {
 		assert(t, dict.Update(key, val))
 	}
 
-	src2.reset()
+	src2.Reset()
 	for i := 0; i < tPiece*3; i++ {
 		key, _ := src2.Get()
 		_, got := dict.Fetch(key)

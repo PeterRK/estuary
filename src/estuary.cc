@@ -648,8 +648,8 @@ static bool InitLock(Estuary::Lock* lock, bool shared=true) {
 	const int pshared = shared? PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
 	pthread_mutexattr_t mutexattr;
 	if (pthread_mutexattr_init(&mutexattr) != 0
-			|| pthread_mutexattr_setpshared(&mutexattr, pshared) != 0
-			|| pthread_mutex_init(&lock->core, &mutexattr) != 0) {
+		|| pthread_mutexattr_setpshared(&mutexattr, pshared) != 0
+		|| pthread_mutex_init(&lock->core, &mutexattr) != 0) {
 		//pthread_mutexattr_destroy is unnecessary
 		return false;
 	}
@@ -821,11 +821,6 @@ static int DoCreate(const std::string& path, const Estuary::Config& config,
 	}
 
 	if (source != nullptr) {
-		size_t padding_count[DATA_BLOCK_SIZE];
-		for (unsigned j = 0; j < DATA_BLOCK_SIZE; j++) {
-			padding_count[j] = 0;
-		}
-
 		Divisor<uint64_t> total_entry(header.total_entry);
 		source->reset();
 		auto total = source->total();
@@ -833,6 +828,7 @@ static int DoCreate(const std::string& path, const Estuary::Config& config,
 			Logger::Printf("too many items\n");
 			return -1;
 		}
+		size_t padding_sum = 0;
 		for (size_t i = 0; i < total; i++) {
 			auto rec = source->read();
 			if (rec.key.ptr == nullptr || rec.key.len == 0 || rec.key.len > config.max_key_len
@@ -840,7 +836,7 @@ static int DoCreate(const std::string& path, const Estuary::Config& config,
 				Logger::Printf("broken item\n");
 				return -1;
 			}
-			padding_count[PaddingSize(rec.key.len, rec.val.len)]++;
+			padding_sum += PaddingSize(rec.key.len, rec.val.len);
 
 			bool done = false;
 			SearchInTable([&rec, meta, &blk, init_end, &done](Entry& ent, uint32_t tag, size_t off)->bool{
@@ -873,11 +869,7 @@ static int DoCreate(const std::string& path, const Estuary::Config& config,
 				return true;
 				}, Hash(rec.key.ptr, rec.key.len, header.seed), (Entry*)table, total_entry);
 			if (UNLIKELY(!done)) {
-				size_t sum = 0;
-				for (unsigned j = 1; j < DATA_BLOCK_SIZE; j++) {
-					sum += padding_count[j] * j;
-				}
-				return static_cast<int>((sum+i)/(i+1));
+				return static_cast<int>(padding_sum/(i+1)) + 1;
 			}
 		}
 	}
