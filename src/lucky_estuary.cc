@@ -97,8 +97,9 @@ bool LuckyEstuary::fetch(const uint8_t* key, uint8_t* val) const {
 	return false;
 }
 
-unsigned LuckyEstuary::batch_fetch(unsigned batch, const uint8_t* __restrict__ keys, uint8_t* __restrict__ data,
-								   const uint8_t* __restrict__ dft_val) const {
+unsigned LuckyEstuary::_batch_fetch(unsigned batch, const uint8_t* __restrict__ dft_val,
+									const uint8_t* __restrict__ keys, uint8_t* __restrict__ data,
+									unsigned* __restrict__ miss) const {
 	constexpr unsigned WINDOW_SIZE = 16;
 	struct State {
 		unsigned idx;
@@ -152,6 +153,8 @@ unsigned LuckyEstuary::batch_fetch(unsigned batch, const uint8_t* __restrict__ k
 				continue;
 			} else if (dft_val != nullptr) {
 				memcpy(out, dft_val, m_const.val_len);
+			} else if (miss != nullptr) {
+				*miss++ = cur.idx;
 			}
 		reload:
 			if (idx < batch) {
@@ -353,34 +356,34 @@ static FORCE_INLINE size_t ItemSize(uint8_t key_len, uint32_t val_len) {
 }
 
 LuckyEstuary LuckyEstuary::Load(const std::string& path, LoadPolicy policy) {
-  LuckyEstuary out;
-  MemMap res;
-  switch (policy) {
-    case SHARED:
-      res = MemMap(path.c_str(), true, false);
-      break;
-    case MONOPOLY:
-      res = MemMap(path.c_str(), true, true);
-      break;
-    case COPY_DATA:
-      res = MemMap(path.c_str(), MemMap::load_by_copy);
-      break;
-    default:
-      return out;
-  }
-  if (!!res) {
-    out._init(std::move(res), policy!=SHARED, path.c_str());
-  }
-  return out;
+	LuckyEstuary out;
+	MemMap res;
+	switch (policy) {
+		case SHARED:
+			res = MemMap(path.c_str(), true, false);
+			break;
+		case MONOPOLY:
+			res = MemMap(path.c_str(), true, true);
+			break;
+		case COPY_DATA:
+			res = MemMap(path.c_str(), MemMap::load_by_copy);
+			break;
+		default:
+			return out;
+	}
+	if (!!res) {
+		out._init(std::move(res), policy!=SHARED, path.c_str());
+	}
+	return out;
 }
 
 LuckyEstuary LuckyEstuary::Load(size_t size, const std::function<bool(uint8_t*)>& load) {
-  LuckyEstuary out;
-  MemMap res(size, load);
-  if (!!res) {
-    out._init(std::move(res), true, "...");
-  }
-  return out;
+	LuckyEstuary out;
+	MemMap res(size, load);
+	if (!!res) {
+		out._init(std::move(res), true, "...");
+	}
+	return out;
 }
 
 struct Offsets {

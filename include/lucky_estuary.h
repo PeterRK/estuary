@@ -33,7 +33,13 @@ class LuckyEstuary final {
 public:
 	bool fetch(const uint8_t* key, uint8_t* val) const;
 	unsigned batch_fetch(unsigned batch, const uint8_t* __restrict__ keys, uint8_t* __restrict__ data,
-						 const uint8_t* __restrict__ dft_val=nullptr) const;
+						 const uint8_t* __restrict__ dft_val=nullptr) const {
+		return _batch_fetch(batch, dft_val, keys, data, nullptr);
+	}
+	unsigned batch_try_fetch(unsigned batch, const uint8_t* __restrict__ keys,
+							 uint8_t* __restrict__ data, unsigned* __restrict__ miss) const {
+		return _batch_fetch(batch, nullptr, keys, data, miss);
+	}
 	bool erase(const uint8_t* key) const;
 	bool update(const uint8_t* key, const uint8_t* val) const;
 	size_t batch_update(IDataReader& source) const;
@@ -81,7 +87,7 @@ public:
 	static bool Create(const std::string& path, const Config& config, IDataReader* source=nullptr);
 	enum LoadPolicy {SHARED, MONOPOLY, COPY_DATA};
 	static LuckyEstuary Load(const std::string& path, LoadPolicy policy=MONOPOLY);
-  static LuckyEstuary Load(size_t size, const std::function<bool(uint8_t*)>& load);
+	static LuckyEstuary Load(size_t size, const std::function<bool(uint8_t*)>& load);
 
 	// only capacity can be extended, entry cannot
 	// percent should be 1-100
@@ -116,7 +122,10 @@ private:
 	bool _erase(const uint8_t* key) const;
 	bool _update(const uint8_t* key, const uint8_t* val) const;
 
-  void _init(MemMap&& res, bool monopoly, const char* path);
+	void _init(MemMap&& res, bool monopoly, const char* path);
+
+	unsigned _batch_fetch(unsigned batch, const uint8_t* __restrict__ dft_val,
+						  const uint8_t* __restrict__ keys, uint8_t* __restrict__ data, unsigned* miss) const;
 };
 
 } //estuary
