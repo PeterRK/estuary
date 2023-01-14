@@ -12,7 +12,7 @@ And more than 2M write QPS without persistence.
 * support key and value with variable length
 * have a very low failure rate in theory
 * aceptable space overhead (ablout 21 bytes per item + 10% data size)
-* work on CPU support little-endian unaligned memory access (X86，ARM，RISC-V...)
+* work on 64bit CPU with little-endian memory order
 
 
 ## The Lucky Version
@@ -28,7 +28,7 @@ And more than one million write QPS without persistence.
 * key and value should have fixed size
 * actually work, but not be theoretically safe (we are usually lucky enough)
 * resonable space overhead (ablout 10 bytes per item)
-* work on CPU support little-endian unaligned memory access (X86，ARM，RISC-V...)
+* work on 64bit CPU with little-endian memory order
 
 
 ## Other Read-only Solutions
