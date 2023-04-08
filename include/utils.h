@@ -43,7 +43,7 @@ public:
 	struct LoadByCopy {};
 	static constexpr LoadByCopy load_by_copy = {};
 	explicit MemMap(const char* path, LoadByCopy);
-  MemMap(size_t size, const std::function<bool(uint8_t*)>& load);
+	MemMap(size_t size, const std::function<bool(uint8_t*)>& load);
 
 	MemMap(MemMap&& other) noexcept
 		: m_addr(other.m_addr), m_size(other.m_size), m_fd(other.m_fd) {
@@ -125,7 +125,7 @@ public:
 	Divisor() noexcept = default;
 	explicit Divisor(Word n) noexcept { *this = n; }
 
-	Divisor operator=(Word n) noexcept {
+	Divisor& operator=(Word n) noexcept {
 		m_val = n;
 #ifndef DISABLE_SOFT_DIVIDE
 		m_fac = 0;
