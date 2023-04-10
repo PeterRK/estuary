@@ -70,7 +70,6 @@ uint64_t Hash(const uint8_t* msg, unsigned len, uint64_t seed) noexcept {
 		a += x[2];
 		b += x[3];
 	}
-  //len &= 0xffU;
 
 	if (len & 0x10U) {
 		auto x = (const uint64_t*)msg;
