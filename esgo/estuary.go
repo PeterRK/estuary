@@ -424,15 +424,20 @@ func (es *Estuary) update(key, val []byte) bool {
 	pos := code % uint64(len(es.table))
 	tag := cutTag(code)
 
+	bookmark := struct {
+		entry *uint64
+		value uint64
+	}{}
 	for i := 0; i < len(es.table); i++ {
 		e := es.table[pos]
 		if isEmpty(e) {
-			if isClean(e) {
-				es.meta.cleanEntry--
+			if bookmark.entry == nil {
+				bookmark.entry = &es.table[pos]
+				bookmark.value = newEntry(neo, tip, tag, uint64(i))
 			}
-			es.meta.item++
-			atomic.StoreUint64(&es.table[pos], newEntry(neo, tip, tag, uint64(i)))
-			return true
+			if isClean(e) {
+				break
+			}
 		} else if getTag(e) == tag {
 			xff := getBlk(e) * BlockSize
 			mark := *es.rMark(xff)
@@ -458,6 +463,14 @@ func (es *Estuary) update(key, val []byte) bool {
 		if pos >= uint64(len(es.table)) {
 			pos = 0
 		}
+	}
+	if bookmark.entry != nil {
+		if isClean(*bookmark.entry) {
+			es.meta.cleanEntry--
+		}
+		atomic.StoreUint64(bookmark.entry, bookmark.value)
+		es.meta.item++
+		return true
 	}
 	return false
 }

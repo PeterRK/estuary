@@ -604,17 +604,20 @@ bool Estuary::_update(Slice key, Slice val) const {
 	cur = next;
 	auto tip = FillRecord(BLK(neo), key, val);
 
+	// FIXED: use first deleted entry without looking forward may cause leak
+	// now just remember it then look forward for the target
+	struct {
+		Entry* entry = nullptr;
+		Entry value;
+	} bookmark;
 	bool done = false;
-	SearchInTable([this, &cur, neo, tip, key, val, &done, origin_entry](Entry& ent, uint32_t tag, size_t off)->bool{
+	SearchInTable([this, &cur, neo, tip, key, val, &bookmark, &done, origin_entry](Entry& ent, uint32_t tag, size_t off)->bool{
 		const auto e = ent;
 		if (IsEmpty(e)) {
-			if (IsClean(e)) {
-				m_meta->clean_entry--;
+			if (bookmark.entry == nullptr) {
+				bookmark = {&ent, Entry(neo, tip, tag, off)};
 			}
-			StoreRelease(ent, Entry(neo, tip, tag, off));
-			m_meta->item++;
-			done = true;
-			return true;
+			return IsClean(e);
 		} else if (e.tag == tag) {
 			auto block = BLK(e.blk);
 			ConsistencyAssert(Rc(block).klen != 0 && Rc(block).vlen <= max_val_len());
@@ -641,6 +644,15 @@ bool Estuary::_update(Slice key, Slice val) const {
 		}
 		return false;
 	}, code, (Entry*)m_table, m_const.total_entry);
+
+	if (!done && bookmark.entry != nullptr) {
+		if (IsClean(*bookmark.entry)) {
+			m_meta->clean_entry--;
+		}
+		StoreRelease(*bookmark.entry, bookmark.value);
+		m_meta->item++;
+		return true;
+	}
 	return done;
 }
 

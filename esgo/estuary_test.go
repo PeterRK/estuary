@@ -182,4 +182,48 @@ func TestErase(t *testing.T) {
 		assert(t, got)
 		assert(t, bytes.Equal(val, rVal))
 	}
+
+	src1.Reset()
+	src2.Reset()
+	for i := 0; i < tPiece/2; i++ {
+		key, _ := src1.Get()
+		assert(t, dict.Erase(key))
+	}
+	for i := 0; i < tPiece/2; i++ {
+		key, val := src2.Get()
+		assert(t, dict.Update(key, val))
+	}
+	for i := tPiece / 2; i < tPiece; i++ {
+		key, _ := src1.Get()
+		assert(t, dict.Erase(key))
+	}
+	src1.init(0, tPiece, 11)
+	for i := 0; i < tPiece/2; i++ {
+		key, val := src1.Get()
+		assert(t, dict.Update(key, val))
+	}
+	for i := tPiece / 2; i < tPiece; i++ {
+		key, val := src2.Get()
+		assert(t, dict.Update(key, val))
+	}
+	src1.Reset()
+	src2.Reset()
+	for i := tPiece / 2; i < tPiece; i++ {
+		key, val := src1.Get()
+		rVal, got := dict.Fetch(key)
+		assert(t, got)
+		assert(t, bytes.Equal(val, rVal))
+		assert(t, dict.Erase(key))
+	}
+	for i := tPiece / 2; i < tPiece; i++ {
+		key, _ := src2.Get()
+		_, got := dict.Fetch(key)
+		assert(t, !got)
+	}
+	for i := tPiece / 2; i < tPiece; i++ {
+		key, val := src2.Get()
+		rVal, got := dict.Fetch(key)
+		assert(t, got)
+		assert(t, bytes.Equal(val, rVal))
+	}
 }

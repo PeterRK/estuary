@@ -144,9 +144,52 @@ TEST(Estuary, Erase) {
 		ASSERT_FALSE(dict.fetch(rec.key, val));
 	}
 
-	VariedValueGenerator check(PIECE*3, PIECE*4, 5);
+	VariedValueGenerator input3(PIECE * 3, PIECE * 4, 5);
 	for (unsigned i = 0; i < PIECE; i++) {
-		auto rec = check.read();
+		auto rec = input3.read();
+		ASSERT_TRUE(dict.fetch(rec.key, val));
+		ASSERT_EQ(val.size(), rec.val.len);
+		ASSERT_EQ(memcmp(val.data(), rec.val.ptr, rec.val.len), 0);
+	}
+
+	input1.reset();
+	input2.reset();
+	input3.reset();
+	for (unsigned i = 0; i < PIECE/2; i++) {
+		auto rec = input3.read();
+		ASSERT_TRUE(dict.erase(rec.key));
+	}
+	for (unsigned i = 0; i < PIECE/2; i++) {
+		auto rec = input1.read();
+		ASSERT_TRUE(dict.update(rec.key, rec.val));
+	}
+	for (unsigned i = PIECE/2; i < PIECE; i++) {
+		auto rec = input3.read();
+		ASSERT_TRUE(dict.erase(rec.key));
+	}
+	for (unsigned i = 0; i < PIECE/2; i++) {
+		auto rec = input2.read();
+		ASSERT_TRUE(dict.update(rec.key, rec.val));
+	}
+	for (unsigned i = PIECE/2; i < PIECE; i++) {
+		auto rec = input1.read();
+		ASSERT_TRUE(dict.update(rec.key, rec.val));
+	}
+	input1.reset();
+	input2.reset();
+	for (unsigned i = 0; i < PIECE/2; i++) {
+		auto rec = input2.read();
+		ASSERT_TRUE(dict.fetch(rec.key, val));
+		ASSERT_EQ(val.size(), rec.val.len);
+		ASSERT_EQ(memcmp(val.data(), rec.val.ptr, rec.val.len), 0);
+		ASSERT_TRUE(dict.erase(rec.key));
+	}
+	for (unsigned i = 0; i < PIECE/2; i++) {
+		auto rec = input1.read();
+		ASSERT_FALSE(dict.fetch(rec.key, val));
+	}
+	for (unsigned i = PIECE/2; i < PIECE; i++) {
+		auto rec = input1.read();
 		ASSERT_TRUE(dict.fetch(rec.key, val));
 		ASSERT_EQ(val.size(), rec.val.len);
 		ASSERT_EQ(memcmp(val.data(), rec.val.ptr, rec.val.len), 0);
