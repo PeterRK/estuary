@@ -240,32 +240,35 @@ uint64_t Estuary::touch(Slice key) const noexcept {
 	return code;
 }
 
-void Estuary::touch(uint64_t code) const noexcept {
+bool Estuary::touch(uint64_t code) const noexcept {
 	if (m_meta == nullptr) {
-		return;
+		return false;
 	}
-	SearchInTable([this](Entry& ent, uint32_t tag, size_t)->bool {
+	bool found = false;
+	SearchInTable([this, &found](Entry& ent, uint32_t tag, size_t)->bool {
 		auto e = ent;
 		if (IsEmpty(e)) {
 			return IsClean(e);
 		} else if (e.tag == tag) {
 			PrefetchForFuture(BLK(e.blk));
+			found = true;
 			return true;
 		}
 		return false;
 	}, code, (Entry*)m_table, m_const.total_entry);
+	return found;
 }
 
 bool Estuary::fetch(Slice key, std::string& out) const {
-	if (m_meta == nullptr) {
-		return false;
-	}
-	auto code = Hash(key.ptr, key.len, m_const.seed);
-	return fetch(code, key, out);
+	return fetch(Hash(key.ptr, key.len, m_const.seed), key, out);
 }
 
 //FIXME: have a very low probability of false miss
 bool Estuary::fetch(uint64_t code, Slice key, std::string& out) const {
+	if (m_meta == nullptr
+		|| key.ptr == nullptr || key.len == 0 || key.len > max_key_len()) {
+		return false;
+	}
 	auto done = _fetch(code, key, out);
 #ifndef DISABLE_FETCH_RETRY
 	//entry can be moved at most twice during sweeping, witch may cause false miss
@@ -312,20 +315,25 @@ bool Estuary::_fetch(uint64_t code, Slice key, std::string& out) const {
 }
 
 bool Estuary::erase(Slice key) const {
-	if (m_meta == nullptr || key.ptr == nullptr || key.len == 0 || key.len > max_key_len()) {
-		return {};
+	return erase(Hash(key.ptr, key.len, m_const.seed), key);
+}
+
+bool Estuary::erase(uint64_t code, Slice key) const {
+	if (m_meta == nullptr
+		|| key.ptr == nullptr || key.len == 0 || key.len > max_key_len()) {
+		return false;
 	}
 	MutexLock master_lock(&m_lock->core);
 	if (m_meta->writing) {
 		throw DataException();
 	}
 	m_meta->writing = true;
-	auto done = _erase(key);
+	auto done = _erase(code, key);
 	m_meta->writing = false;
 	return done;
 }
 
-bool Estuary::_erase(Slice key) const {
+bool Estuary::_erase(uint64_t code, Slice key) const {
 	bool done = false;
 	SearchInTable([this, key, &done](Entry& ent, uint32_t tag, size_t)->bool{
 		const auto e = ent;
@@ -347,7 +355,7 @@ bool Estuary::_erase(Slice key) const {
 			}
 		}
 		return false;
-	}, Hash(key.ptr, key.len, m_const.seed), (Entry*)m_table, m_const.total_entry);
+	}, code, (Entry*)m_table, m_const.total_entry);
 	return done;
 }
 
@@ -378,6 +386,10 @@ static uint64_t FillRecord(uint8_t* block, Slice key, Slice val) {
 }
 
 bool Estuary::update(Slice key, Slice val) const {
+	return _update(Hash(key.ptr, key.len, m_const.seed), key, val);
+}
+
+bool Estuary::update(uint64_t code, Slice key, Slice val) const {
 	if (m_meta == nullptr
 		|| key.ptr == nullptr || key.len == 0 || key.len > max_key_len()
 		|| (val.len != 0 && val.ptr == nullptr) || val.len > max_val_len()) {
@@ -388,7 +400,7 @@ bool Estuary::update(Slice key, Slice val) const {
 		throw DataException();
 	}
 	m_meta->writing = true;
-	auto done = _update(key, val);
+	auto done = _update(code, key, val);
 	m_meta->writing = false;
 	return done;
 }
@@ -405,7 +417,7 @@ size_t Estuary::item_limit() const {
 	return ItemLimit(m_const.total_entry.value());
 }
 
-bool Estuary::_update(Slice key, Slice val) const {
+bool Estuary::_update(uint64_t code, Slice key, Slice val) const {
 	auto new_block = RecordBlocks(key.len, val.len);
 	if (m_meta->free_block < new_block + TOTAL_RESERVED_BLOCK
 		|| TotalEntry(m_meta->item) > m_const.total_entry.value()) {
@@ -506,7 +518,6 @@ bool Estuary::_update(Slice key, Slice val) const {
 	auto& cur = m_meta->block_cursor;
 	ConsistencyAssert(Rc(BLK(cur)).klen == 0 && cur+Rc(BLK(cur)).bcnt <= m_const.total_block);
 
-	const auto code = Hash(key.ptr, key.len, m_const.seed);
 	auto origin_entry = CLEAN_ENTRY;
 	//update after movement may cause ABA problem, detect and fix it
 

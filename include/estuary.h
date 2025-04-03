@@ -35,13 +35,15 @@ namespace estuary {
 class Estuary final {
 public:
 	bool fetch(Slice key, std::string& out) const;
-	bool erase(Slice key) const;
 	bool update(Slice key, Slice val) const;
+	bool erase(Slice key) const;
 
 	//Pipeline API
 	uint64_t touch(Slice key) const noexcept;
-	void touch(uint64_t code) const noexcept;
+	bool touch(uint64_t code) const noexcept;
 	bool fetch(uint64_t code, Slice key, std::string& out) const;
+	bool erase(uint64_t code, Slice key) const;
+	bool update(uint64_t code, Slice key, Slice val) const;
 
 	bool operator!() const noexcept { return m_meta == nullptr; }
 	unsigned max_key_len() const noexcept { return m_const.max_key_len; }
@@ -117,8 +119,8 @@ private:
 	Estuary& operator=(const Estuary&) noexcept = delete;
 
 	bool _fetch(uint64_t code, Slice key, std::string& out) const;
-	bool _erase(Slice key) const;
-	bool _update(Slice key, Slice val) const;
+	bool _erase(uint64_t code, Slice key) const;
+	bool _update(uint64_t code, Slice key, Slice val) const;
 
 	void _init(MemMap&& res, bool monopoly, const char* path);
 };

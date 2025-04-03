@@ -48,6 +48,15 @@ static int BenchFetch() {
 		return 1;
 	}
 
+	struct Context {
+		uint64_t key;
+		uint64_t code;
+		Context(XorShift128Plus& rnd, const estuary::Estuary& dict) noexcept {
+			key = rnd() % SIZE;
+			code = dict.touch({(const uint8_t*)&key, sizeof(uint64_t)});
+		}
+	};
+
 	uint64_t write_ops = 0;
 	uint64_t write_ns = 0;
 	volatile bool quit = FLAGS_disable_write;
@@ -62,9 +71,22 @@ static int BenchFetch() {
 		}
 
 		auto start = std::chrono::steady_clock::now();
-		for (; !quit; write_ops++) {
-			key = rnd() % SIZE;
-			dict.update({(const uint8_t*)&key, sizeof(uint64_t)}, {val, len++});
+		if (FLAGS_disable_pipeline) {
+			for (; !quit; write_ops++) {
+				key = rnd() % SIZE;
+				dict.update({(const uint8_t *) &key, sizeof(uint64_t)}, {val, len++});
+			}
+		} else {
+			Context a(rnd, dict);
+			Context b(rnd, dict);
+			dict.touch(a.code);
+			for (; !quit; write_ops++) {
+				Context c(rnd, dict);
+				dict.touch(b.code);
+				dict.update(a.code, {(const uint8_t*)&a.key, sizeof(uint64_t)}, {val, len++});
+				a = b;
+				b = c;
+			}
 		}
 		auto end = std::chrono::steady_clock::now();
 		write_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
@@ -81,20 +103,12 @@ static int BenchFetch() {
 			XorShift128Plus rnd;
 			std::string val;
 			auto start = std::chrono::steady_clock::now();
-			if (FLAGS_disable_pipeline || loop < 2) {
+			if (FLAGS_disable_pipeline) {
 				for (unsigned i = 0; i < loop; i++) {
 					uint64_t key = rnd() % SIZE;
 					dict.fetch({(const uint8_t*)&key, sizeof(uint64_t)}, val);
 				}
 			} else {
-				struct Context {
-					uint64_t key;
-					uint64_t code;
-					Context(XorShift128Plus& rnd, const estuary::Estuary& dict) noexcept {
-						key = rnd() % SIZE;
-						code = dict.touch({(const uint8_t*)&key, sizeof(uint64_t)});
-					}
-				};
 				Context a(rnd, dict);
 				Context b(rnd, dict);
 				dict.touch(a.code);
