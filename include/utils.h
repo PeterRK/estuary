@@ -162,8 +162,7 @@ public:
 #ifdef DISABLE_SOFT_DIVIDE
 		return m / m_val;
 #else
-		Word t = (m_fac * (DoubleWord)m + m_tip) >> BITWIDTH;
-		return t >> m_sft;
+		return (m_fac * (DoubleWord)m + m_tip) >> (BITWIDTH + m_sft);
 #endif
 	}
 
@@ -171,8 +170,7 @@ public:
 #ifdef DISABLE_SOFT_DIVIDE
 		return m % m_val;
 #else
-		Word t = (m_fac * (DoubleWord)m + m_tip) >> BITWIDTH;
-		return m - m_val * (t >> m_sft);
+		return m - m_val * div(m);
 #endif
 	}
 };
