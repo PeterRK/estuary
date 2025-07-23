@@ -28,6 +28,7 @@
 #include <vector>
 #include <memory>
 #include <exception>
+#include <functional>
 #include "utils.h"
 
 namespace estuary {
@@ -36,6 +37,7 @@ class Estuary final {
 public:
 	bool fetch(Slice key, std::string& out) const;
 	bool update(Slice key, Slice val) const;
+	bool update(Slice key, const std::function<bool(const Slice& old, Slice& neo)>& modify) const;
 	bool erase(Slice key) const;
 
 	//Pipeline API
@@ -118,6 +120,7 @@ private:
 	Estuary(const Estuary&) noexcept = delete;
 	Estuary& operator=(const Estuary&) noexcept = delete;
 
+	Slice _fetch(uint64_t code, Slice key) const;
 	bool _fetch(uint64_t code, Slice key, std::string& out) const;
 	bool _erase(uint64_t code, Slice key) const;
 	bool _update(uint64_t code, Slice key, Slice val) const;

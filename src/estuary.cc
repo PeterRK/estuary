@@ -283,6 +283,24 @@ bool Estuary::fetch(uint64_t code, Slice key, std::string& out) const {
 	return done;
 }
 
+Slice Estuary::_fetch(uint64_t code, Slice key) const {
+	Slice out;
+	SearchInTable([this, key, &out](Entry& ent, uint32_t tag, size_t)->bool {
+		if (IsEmpty(ent)) {
+			return IsClean(ent);
+		} else if (ent.tag == tag) {
+			auto block = BLK(ent.blk);
+			auto mark = Rc(block);
+			if (LIKELY(KeyMatch(key, mark, block))) {
+				out = {RcVal(mark, block), mark.vlen};
+				return true;
+			}
+		}
+		return false;
+	}, code, (Entry*)m_table, m_const.total_entry);
+	return out;
+}
+
 bool Estuary::_fetch(uint64_t code, Slice key, std::string& out) const {
 	bool done = false;
 	SearchInTable([this, key, &out, &done](Entry& ent, uint32_t tag, size_t)->bool {
@@ -401,6 +419,25 @@ bool Estuary::update(uint64_t code, Slice key, Slice val) const {
 	}
 	m_meta->writing = true;
 	auto done = _update(code, key, val);
+	m_meta->writing = false;
+	return done;
+}
+
+bool Estuary::update(Slice key, const std::function<bool(const Slice& old, Slice& neo)>& modify) const {
+	if (m_meta == nullptr
+		|| key.ptr == nullptr || key.len == 0 || key.len > max_key_len()) {
+		return false;
+	}
+	auto code = Hash(key.ptr, key.len, m_const.seed);
+	MutexLock master_lock(&m_lock->core);
+	if (m_meta->writing) {
+		throw DataException();
+	}
+	m_meta->writing = true;
+	auto old = _fetch(code, key);
+	Slice val;
+	auto done = old.ptr != nullptr && modify(old, val)
+				&& _update(code, key, val);
 	m_meta->writing = false;
 	return done;
 }

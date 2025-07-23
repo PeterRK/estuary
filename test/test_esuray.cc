@@ -109,6 +109,25 @@ TEST(Estuary, Update) {
 		ASSERT_EQ(val.size(), rec.val.len);
 		ASSERT_EQ(memcmp(val.data(), rec.val.ptr, rec.val.len), 0);
 	}
+
+	val.resize(1);
+	input1.reset();
+	for (unsigned i = 0; i < PIECE; i++) {
+		rec = input1.read();
+		ASSERT_TRUE(dict.update(rec.key, [&val](const estuary::Slice& old, estuary::Slice& neo)->bool {
+			val[0] = old.len;
+			neo = {(const uint8_t*)val.data(), val.size()};
+			return true;
+		}));
+	}
+
+	input1.reset();
+	for (unsigned i = 0; i < PIECE; i++) {
+		rec = input1.read();
+		ASSERT_TRUE(dict.fetch(rec.key, val));
+		ASSERT_EQ(val.size(), 1);
+		ASSERT_EQ((uint8_t)val[0], rec.val.len);
+	}
 }
 
 TEST(Estuary, Erase) {
