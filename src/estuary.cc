@@ -386,7 +386,7 @@ static uint64_t FillRecord(uint8_t* block, Slice key, Slice val) {
 }
 
 bool Estuary::update(Slice key, Slice val) const {
-	return _update(Hash(key.ptr, key.len, m_const.seed), key, val);
+	return update(Hash(key.ptr, key.len, m_const.seed), key, val);
 }
 
 bool Estuary::update(uint64_t code, Slice key, Slice val) const {
