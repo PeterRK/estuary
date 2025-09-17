@@ -76,7 +76,7 @@ public:
 	static constexpr unsigned MAX_KEY_LEN = UINT8_MAX;
 	static constexpr unsigned MAX_VAL_LEN = (1U<<24U)-1U;
 	struct Config {
-		size_t item_limit = 1000;			//128-4294967294
+		size_t item_limit = 1000;			//200-4294967294
 		unsigned max_key_len = 32;			//1-255
 		unsigned max_val_len = 1048576;		//1-16777215
 
