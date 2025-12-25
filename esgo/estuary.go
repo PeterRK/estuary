@@ -34,8 +34,9 @@ type Estuary struct {
 	totalBlock    uint64
 	spareBlock    uint64
 	reservedBlock uint64
-	sweeping      int32
 	size          int
+	sweeping      int32
+	ref           int32
 }
 
 func (es *Estuary) Valid() bool {
@@ -682,7 +683,14 @@ func (es *Estuary) Dump(out io.Writer) error {
 	return nil
 }
 
-func (es *Estuary) Destroy() {
+func (es *Estuary) Acquire() {
+	atomic.AddInt32(&es.ref, 1)
+}
+
+func (es *Estuary) Release() {
+	if atomic.AddInt32(&es.ref, -1) > 0 {
+		return
+	}
 	if res := es.resource; res != nil {
 		syscall.Munmap(res)
 	}

@@ -66,7 +66,7 @@ func TestBuildAndRead(t *testing.T) {
 
 	dict, err := LoadFile(filename)
 	assert(t, err == nil && dict.Valid())
-	defer dict.Destroy()
+	defer dict.Release()
 	assert(t, dict.MaxKeyLen() == tCfg.MaxKeyLen)
 	assert(t, dict.MaxValLen() == tCfg.MaxValLen)
 	assert(t, dict.Item() == tPiece)
@@ -97,7 +97,7 @@ func TestUpdate(t *testing.T) {
 
 	dict, err := LoadFile(filename)
 	assert(t, err == nil && dict.Valid())
-	defer dict.Destroy()
+	defer dict.Release()
 
 	src1.Reset()
 	for i := 0; i < tPiece; i++ {
@@ -146,7 +146,7 @@ func TestErase(t *testing.T) {
 
 	dict, err := LoadFile(filename)
 	assert(t, err == nil && dict.Valid())
-	defer dict.Destroy()
+	defer dict.Release()
 
 	var src1, src2 = &generator{}, &generator{}
 	src1.init(0, tPiece*4, 5)
