@@ -884,7 +884,7 @@ func Create(filename string, cfg *Config, src Source) error {
 }
 
 func Extend(filename string, percent int, cfg *Config) error {
-	if percent <= 0 || percent > 1000 {
+	if percent <= 0 || percent > 100 {
 		return errors.New("illegal parameters")
 	}
 	fd, err := syscall.Open(filename, syscall.O_RDWR, 0644)
