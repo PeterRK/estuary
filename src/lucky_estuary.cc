@@ -83,7 +83,7 @@ static FORCE_INLINE bool Equal(const uint8_t* a, const uint8_t* b, uint8_t len) 
 }
 
 bool LuckyEstuary::fetch(const uint8_t* key, uint8_t* val) const {
-	if (m_meta == nullptr || key == nullptr) {
+	if (m_meta == nullptr || key == nullptr || (m_const.val_len != 0 && val == nullptr)) {
 		return false;
 	}
 	for (auto id = LoadAcquire(m_table[ENTRY(key)]); id != Node::END; ) {
@@ -222,7 +222,7 @@ size_t LuckyEstuary::batch_update(IDataReader& source) const {
 }
 
 bool LuckyEstuary::update(const uint8_t* key, const uint8_t* val) const {
-	if (m_meta == nullptr || key == nullptr || val == nullptr) {
+	if (m_meta == nullptr || key == nullptr || (m_const.val_len != 0 && val == nullptr)) {
 		return false;
 	}
 	MutexLock master_lock(&m_lock->core);

@@ -161,3 +161,27 @@ TEST(LuckyEstuary, Write) {
 	ASSERT_TRUE(dict.fetch(rec.key.ptr, out.get()));
 	ASSERT_EQ(memcmp(out.get(), rec.val.ptr, rec.val.len), 0);
 }
+
+TEST(LuckyEstuary, ZeroLengthValue) {
+	estuary::Logger::Bind(nullptr);
+	const std::string filename = "zero-value.les";
+
+	estuary::LuckyEstuary::Config config;
+	config.entry = estuary::LuckyEstuary::MIN_CAPACITY;
+	config.capacity = estuary::LuckyEstuary::MIN_CAPACITY;
+	config.key_len = sizeof(uint64_t);
+	config.val_len = 0;
+
+	ASSERT_TRUE(estuary::LuckyEstuary::Create(filename, config));
+
+	auto dict = estuary::LuckyEstuary::Load(filename);
+	ASSERT_FALSE(!dict);
+
+	uint64_t key0 = 7;
+	uint64_t key1 = 9;
+	ASSERT_TRUE(dict.update(reinterpret_cast<const uint8_t*>(&key0), nullptr));
+	ASSERT_TRUE(dict.fetch(reinterpret_cast<const uint8_t*>(&key0), nullptr));
+	ASSERT_FALSE(dict.fetch(reinterpret_cast<const uint8_t*>(&key1), nullptr));
+	ASSERT_TRUE(dict.erase(reinterpret_cast<const uint8_t*>(&key0)));
+	ASSERT_FALSE(dict.fetch(reinterpret_cast<const uint8_t*>(&key0), nullptr));
+}

@@ -26,6 +26,32 @@ type generator struct {
 	key   [8]byte
 }
 
+type fixedSource struct {
+	total   int
+	curr    int
+	keyLen  int
+	valLen  int
+	keyBuf  [8]byte
+	valBuf  [255]byte
+}
+
+func (s *fixedSource) Reset() {
+	s.curr = 0
+}
+
+func (s *fixedSource) Total() int {
+	return s.total
+}
+
+func (s *fixedSource) Get() (key, val []byte) {
+	binary.LittleEndian.PutUint64(s.keyBuf[:], uint64(s.curr))
+	for i := 0; i < s.valLen; i++ {
+		s.valBuf[i] = byte(s.curr + i)
+	}
+	s.curr++
+	return s.keyBuf[:s.keyLen], s.valBuf[:s.valLen]
+}
+
 func (g *generator) init(begin, total uint64, shift uint8) {
 	g.curr = begin - 1
 	g.begin = begin
@@ -226,4 +252,25 @@ func TestErase(t *testing.T) {
 		assert(t, got)
 		assert(t, bytes.Equal(val, rVal))
 	}
+}
+
+func TestCreateTotalBlockRetry(t *testing.T) {
+	cfg := &Config{
+		ItemLimit:   200,
+		MaxKeyLen:   8,
+		MaxValLen:   255,
+		AvgItemSize: 2,
+	}
+	src := &fixedSource{
+		total:  50,
+		keyLen: 8,
+		valLen: 255,
+	}
+
+	_, err := create("retry-small.es", cfg, 1, src)
+	assert(t, err == errOutOfCapacity)
+
+	src.Reset()
+	_, err = create("retry-large.es", cfg, 2000, src)
+	assert(t, err == nil)
 }

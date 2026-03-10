@@ -635,12 +635,8 @@ func (es *Estuary) Load(src Reader) error {
 		}
 	}()
 
-	for n := 0; n < size; {
-		m, err := src.Read(res[n:])
-		if err != nil {
-			return err
-		}
-		n += m
+	if _, err = io.ReadFull(src, res[:size]); err != nil {
+		return err
 	}
 
 	meta := cast[metaInfo](&res[0])
@@ -769,8 +765,10 @@ func create(filename string, cfg *Config, totalBlock uint64, src Source) (uint64
 		blockCursor: 0,
 		totalEntry:  calcTotalEntry(cfg.ItemLimit),
 	}
-	header.totalBlock = (uint64(cfg.AvgItemSize+4) + BlockSize/2) *
-		(cfg.ItemLimit + 1) / BlockSize
+	header.totalBlock = totalBlock
+	if header.totalBlock < cfg.ItemLimit+1 {
+		header.totalBlock = cfg.ItemLimit + 1
+	}
 	initEnd := header.totalBlock
 	header.totalBlock += header.totalBlock/(DataReserveFactor-1) + 1
 	header.totalBlock += calcBlock(cfg.MaxKeyLen, cfg.MaxValLen) * 2
