@@ -168,8 +168,7 @@ static int BenchBuild() {
 int main(int argc, char* argv[]) {
 	google::ParseCommandLineFlags(&argc, &argv, true);
 
-	auto cpus = get_nprocs();
-	if (cpus <= 0) cpus = 1;
+	const auto cpus = static_cast<unsigned>(std::max(get_nprocs(), 1));
 	if (FLAGS_thread == 0 || FLAGS_thread > cpus) {
 		FLAGS_thread = cpus;
 	}

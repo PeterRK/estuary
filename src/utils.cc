@@ -147,7 +147,7 @@ static bool Read(int fd, uint8_t* data, size_t size) noexcept {
 		data += block;
 		size -= block;
 	}
-	if (pread(fd, data, size, off) != size) {
+	if (pread(fd, data, size, off) != static_cast<ssize_t>(size)) {
 		return false;
 	}
 	return true;
