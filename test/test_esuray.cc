@@ -55,6 +55,18 @@ TEST(Estuary, BuildAndRead) {
 	ASSERT_FALSE(dict.fetch({junk_key,8}, val));
 }
 
+TEST(Estuary, SmallRecordConfig) {
+	const std::string filename = "small-record.es";
+	const estuary::Estuary::Config config = {
+		.item_limit = PIECE,
+		.max_key_len = 1,
+		.max_val_len = 1,
+		.avg_item_size = 2
+	};
+	ASSERT_TRUE(estuary::Estuary::Create(filename, config));
+	ASSERT_FALSE(!estuary::Estuary::Load(filename));
+}
+
 TEST(Estuary, Update) {
 	estuary::Logger::Bind(nullptr);
 	const std::string filename = "update.es";

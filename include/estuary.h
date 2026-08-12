@@ -35,8 +35,13 @@ namespace estuary {
 
 class Estuary final {
 public:
+	// APIs without a precomputed code require a valid, non-empty key whose length
+	// does not exceed max_key_len(). Violating this precondition is unsafe.
 	bool fetch(Slice key, std::string& out) const;
 	bool update(Slice key, Slice val) const;
+	// modify runs under the write lock and must not throw or call a mutating API.
+	// If it returns true, neo must remain valid until update returns; a non-empty
+	// neo requires a valid pointer, and its length must not exceed max_val_len().
 	bool update(Slice key, const std::function<bool(const Slice& old, Slice& neo)>& modify) const;
 	bool erase(Slice key) const;
 
@@ -94,6 +99,7 @@ public:
 	// percent should be 1-100
 	static bool Extend(const std::string& path, unsigned percent, Config* result=nullptr);
 
+	// path must not refer to the file backing the current memory mapping.
 	bool dump(const std::string& path) const noexcept {
 		return m_resource.dump(path.c_str());
 	}

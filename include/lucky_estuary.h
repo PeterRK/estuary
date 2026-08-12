@@ -93,6 +93,7 @@ public:
 	// percent should be 1-100
 	static bool Extend(const std::string& path, unsigned percent, Config* result=nullptr);
 
+	// path must not refer to the file backing the current memory mapping.
 	bool dump(const std::string& path) const noexcept {
 		return m_resource.dump(path.c_str());
 	}

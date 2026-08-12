@@ -137,18 +137,20 @@ static inline constexpr size_t RoundUp(size_t n) {
 static bool Read(int fd, uint8_t* data, size_t size) noexcept {
 	constexpr size_t block = 16*1024*1024;
 	size_t off = 0;
-	while (size > block) {
-		auto next = off + block;
-		readahead(fd, next, block);
-		if (pread(fd, data, block, off) != block) {
+	while (off < size) {
+		const auto remain = size - off;
+		const auto count = remain > block ? block : remain;
+		if (remain > block) {
+			readahead(fd, off + count, block);
+		}
+		ssize_t done;
+		do {
+			done = pread(fd, data + off, count, off);
+		} while (done < 0 && errno == EINTR);
+		if (done <= 0) {
 			return false;
 		}
-		off = next;
-		data += block;
-		size -= block;
-	}
-	if (pread(fd, data, size, off) != static_cast<ssize_t>(size)) {
-		return false;
+		off += static_cast<size_t>(done);
 	}
 	return true;
 }
@@ -223,8 +225,11 @@ bool MemMap::dump(const char* path) const noexcept {
 	}
 	ssize_t remain = m_size;
 	for (auto buf = m_addr; remain > 0;) {
-		auto sz = write(fd, buf, remain);
-		if (sz < 0) {
+		ssize_t sz;
+		do {
+			sz = write(fd, buf, remain);
+		} while (sz < 0 && errno == EINTR);
+		if (sz <= 0) {
 			break;
 		}
 		buf += sz;

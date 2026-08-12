@@ -271,7 +271,7 @@ func (es *Estuary) Fetch(key []byte) ([]byte, bool) {
 	}
 	code := hash(es.seed, key)
 	val, got := es.fetch(code, key)
-	if !got && es.sweeping != 0 {
+	if !got && atomic.LoadInt32(&es.sweeping) != 0 {
 		val, got = es.fetch(code, key)
 		if !got {
 			val, got = es.fetch(code, key)
@@ -380,13 +380,13 @@ func (es *Estuary) update(key, val []byte) bool {
 		next := es.meta.blockCursor + bcnt
 		if next == es.totalBlock {
 			vic := uint64(0)
-			for vic < cur {
+			for vic < es.meta.blockCursor {
 				off := vic * BlockSize
 				if isFreeSection(*es.sMark(off)) {
 					vic += getBcnt(*es.sMark(off))
 				} else if vic < newBcnt+es.reservedBlock {
 					bcnt = calcBlockFromMark(*es.rMark(off))
-					if getBcnt(*es.sMark(cur)) < bcnt {
+					if getBcnt(*es.sMark(es.meta.blockCursor * BlockSize)) < bcnt {
 						break
 					}
 					es.moveRecord(code, key, vic, &origin)
@@ -674,11 +674,15 @@ func (es *Estuary) Dump(out io.Writer) error {
 		if err != nil {
 			return err
 		}
+		if m == 0 {
+			return io.ErrShortWrite
+		}
 		n += m
 	}
 	return nil
 }
 
+// Acquire adds an explicit reference. Load does not acquire one implicitly.
 func (es *Estuary) Acquire() {
 	atomic.AddInt32(&es.ref, 1)
 }
@@ -806,6 +810,7 @@ func create(filename string, cfg *Config, totalBlock uint64, src Source) (uint64
 
 	total := 0
 	if src != nil {
+		src.Reset()
 		total = src.Total()
 		if total < 0 || total > int(cfg.ItemLimit) {
 			return 0, errors.New("bad source")
@@ -912,7 +917,7 @@ func Extend(filename string, percent int, cfg *Config) error {
 	if meta.magic != MAGIC ||
 		meta.totalEntry < MinEntry || meta.totalEntry > MaxEntry ||
 		meta.totalBlock <= reservedBlock || meta.totalBlock+extBcnt > ReservedAddr ||
-		size < int(clacSize(meta)) {
+		size != int(clacSize(meta)) {
 		return errors.New("broken data")
 	}
 

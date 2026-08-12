@@ -24,7 +24,9 @@
 #include <cstdint>
 #include <chrono>
 #include <exception>
+#include <new>
 #include <pthread.h>
+#include <utility>
 
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define NOINLINE __attribute__((noinline))
@@ -67,16 +69,17 @@ public:
 		}
 	};
 	~LockGuard() noexcept {
-		T::Unlock(m_lock);
+		if (m_lock != nullptr) {
+			T::Unlock(m_lock);
+		}
 	}
-	LockGuard(LockGuard&& other) : m_lock(other.m_lock) {
+	LockGuard(LockGuard&& other) noexcept : m_lock(other.m_lock) {
 		other.m_lock = nullptr;
 	}
 	LockGuard& operator=(LockGuard&& other) noexcept {
 		if (&other != this) {
 			this->~LockGuard();
-			this->m_lock = other.m_lock;
-			other.m_lock = nullptr;
+			new(this) LockGuard(std::move(other));
 		}
 		return *this;
 	}
@@ -120,6 +123,11 @@ T FORCE_INLINE LoadAcquire(const T& tgt) {
 template <typename T>
 void FORCE_INLINE StoreRelease(T& tgt, T val) {
 	__atomic_store_n(&tgt, val, __ATOMIC_RELEASE);
+}
+
+template <typename T>
+void FORCE_INLINE StoreRelaxed(T& tgt, T val) {
+	__atomic_store_n(&tgt, val, __ATOMIC_RELAXED);
 }
 
 template <typename T>

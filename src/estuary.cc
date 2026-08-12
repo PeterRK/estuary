@@ -273,7 +273,7 @@ bool Estuary::fetch(uint64_t code, Slice key, std::string& out) const {
 #ifndef DISABLE_FETCH_RETRY
 	//entry can be moved at most twice during sweeping, witch may cause false miss
 	//NOTICE: That's not completely avoided.
-	if (!done && UNLIKELY(m_lock->sweeping)) {
+	if (!done && UNLIKELY(LoadAcquire(m_lock->sweeping))) {
 		done = _fetch(code, key, out);
 		if (!done) {
 			done = _fetch(code, key, out);
@@ -521,7 +521,7 @@ bool Estuary::_update(uint64_t code, Slice key, Slice val) const {
 		};
 
 		//entry can be moved twice at most
-		m_lock->sweeping = true;
+		StoreRelaxed(m_lock->sweeping, true);
 		MemoryBarrier();
 		if (upstairs(false)) {
 			upstairs(true);
@@ -545,8 +545,7 @@ bool Estuary::_update(uint64_t code, Slice key, Slice val) const {
 
 		//keep sweeping status longer
 		sched_yield();
-		MemoryBarrier();
-		m_lock->sweeping = false;
+		StoreRelease(m_lock->sweeping, false);
 
 		ConsistencyAssert(item == m_meta->item);
 		m_meta->clean_entry = total_entry.value() - item - dirty;
@@ -774,7 +773,7 @@ static bool GetOffsets(const MemMap& res, Offsets& offsets, bool strict=false) {
 	const auto data_end = offsets.data + meta->total_block * DATA_BLOCK_SIZE;
 	if (meta->magic != MAGIC
 		|| meta->total_entry < MIN_ENTRY || meta->total_entry > MAX_ENTRY
-		|| meta->total_block < meta->total_entry || meta->total_block > DATA_BLOCK_LIMIT
+		|| meta->total_block <= ItemLimit(meta->total_entry) || meta->total_block > DATA_BLOCK_LIMIT
 		|| res.size() < data_end) {
 		return false;
 	}

@@ -274,3 +274,37 @@ func TestCreateTotalBlockRetry(t *testing.T) {
 	_, err = create("retry-large.es", cfg, 2000, src)
 	assert(t, err == nil)
 }
+
+func TestUpdateWrapsBlockCursor(t *testing.T) {
+	cfg := &Config{
+		ItemLimit:   200,
+		MaxKeyLen:   8,
+		MaxValLen:   32,
+		AvgItemSize: 16,
+	}
+	filename := t.TempDir() + "/wrap.es"
+	assert(t, Create(filename, cfg, nil) == nil)
+
+	dict, err := LoadFile(filename)
+	assert(t, err == nil && dict.Valid())
+	defer dict.Release()
+
+	key := make([]byte, 8)
+	val := make([]byte, 32)
+	binary.LittleEndian.PutUint64(key, 1)
+	wrapped := false
+	for i := 0; i < 1000; i++ {
+		for j := range val {
+			val[j] = byte(i + j)
+		}
+		previous := dict.meta.blockCursor
+		assert(t, dict.Update(key, val))
+		if dict.meta.blockCursor < previous {
+			wrapped = true
+		}
+		got, ok := dict.Fetch(key)
+		assert(t, ok)
+		assert(t, bytes.Equal(val, got))
+	}
+	assert(t, wrapped)
+}
