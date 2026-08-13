@@ -48,7 +48,7 @@ struct Estuary::Meta {
 using Header = Estuary::Meta;
 
 size_t Estuary::item() const noexcept {
-	return m_meta == nullptr? 0 : m_meta->item;
+	return m_meta == nullptr? 0 : LoadRelaxed(m_meta->item);
 }
 
 struct Estuary::Lock {
@@ -363,7 +363,7 @@ bool Estuary::_erase(uint64_t code, Slice key) const {
 			if (LIKELY(KeyMatch(key, block))) {
 				StoreRelease(ent, DELETED_ENTRY);
 				ConsistencyAssert(m_meta->item != 0);
-				m_meta->item--;
+				SubRelaxed(m_meta->item, size_t{1});
 				const auto bcnt = RecordBlocks(block);
 				Rc(block) = MarkForEmpty(bcnt);
 				m_meta->free_block += bcnt;
@@ -697,7 +697,7 @@ bool Estuary::_update(uint64_t code, Slice key, Slice val) const {
 			m_meta->clean_entry--;
 		}
 		StoreRelease(*bookmark.entry, bookmark.value);
-		m_meta->item++;
+		AddRelaxed(m_meta->item, size_t{1});
 		return true;
 	}
 	return done;

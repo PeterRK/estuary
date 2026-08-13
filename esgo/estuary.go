@@ -54,7 +54,7 @@ func (es *Estuary) Item() uint64 {
 	if es.meta == nil {
 		return 0
 	}
-	return es.meta.item
+	return atomic.LoadUint64(&es.meta.item)
 }
 
 func (es *Estuary) ItemLimit() uint64 {
@@ -302,7 +302,7 @@ func (es *Estuary) erase(key []byte) bool {
 			rKey, _ := extractRecord(mark, es.data[off:])
 			if bytes.Equal(key, rKey) {
 				atomic.StoreUint64(&es.table[pos], DeletedEntry)
-				es.meta.item--
+				atomic.AddUint64(&es.meta.item, ^uint64(0))
 				bcnt := calcBlockFromMark(mark)
 				*es.sMark(off) = markFormEmpty(bcnt)
 				es.meta.freeBlock += bcnt
@@ -476,7 +476,7 @@ func (es *Estuary) update(key, val []byte) bool {
 			es.meta.cleanEntry--
 		}
 		atomic.StoreUint64(bookmark.entry, bookmark.value)
-		es.meta.item++
+		atomic.AddUint64(&es.meta.item, 1)
 		return true
 	}
 	return false

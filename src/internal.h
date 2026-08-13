@@ -121,6 +121,11 @@ T FORCE_INLINE LoadAcquire(const T& tgt) {
 }
 
 template <typename T>
+T FORCE_INLINE LoadRelaxed(const T& tgt) {
+	return __atomic_load_n(&tgt, __ATOMIC_RELAXED);
+}
+
+template <typename T>
 void FORCE_INLINE StoreRelease(T& tgt, T val) {
 	__atomic_store_n(&tgt, val, __ATOMIC_RELEASE);
 }

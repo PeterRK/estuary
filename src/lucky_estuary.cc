@@ -51,7 +51,7 @@ struct LuckyEstuary::Meta {
 using Header = LuckyEstuary::Meta;
 
 uint32_t LuckyEstuary::item() const noexcept {
-	return m_meta == nullptr? 0 : m_meta->item;
+	return m_meta == nullptr? 0 : LoadRelaxed(m_meta->item);
 }
 
 struct LuckyEstuary::Lock {
@@ -100,6 +100,9 @@ bool LuckyEstuary::fetch(const uint8_t* key, uint8_t* val) const {
 unsigned LuckyEstuary::_batch_fetch(unsigned batch, const uint8_t* __restrict__ dft_val,
 									const uint8_t* __restrict__ keys, uint8_t* __restrict__ data,
 									unsigned* __restrict__ miss) const {
+	if (batch == 0 || m_meta == nullptr || keys == nullptr || data == nullptr) {
+		return 0;
+	}
 	constexpr unsigned WINDOW_SIZE = 16;
 	struct State {
 		unsigned idx;
@@ -187,9 +190,9 @@ bool LuckyEstuary::_erase(const uint8_t* key) const {
 		auto node = NODE(knot->next);
 		if (Equal(node->line, key, m_const.key_len)) {
 			auto vic = knot->next;
-			knot->next = node->next;
+			StoreRelease(knot->next, node->next);
 			_recycle(vic);
-			m_meta->item--;
+			SubRelaxed(m_meta->item, uint32_t{1});
 			return true;
 		}
 		knot = node;
@@ -279,7 +282,7 @@ bool LuckyEstuary::_update(const uint8_t* key, const uint8_t* val) const {
 	auto [id, neo] = new_node(key, val);
 	neo->next = m_table[entry];
 	StoreRelease(m_table[entry], id);
-	m_meta->item++;
+	AddRelaxed(m_meta->item, uint32_t{1});
 	return true;
 }
 
@@ -595,9 +598,10 @@ bool LuckyEstuary::Extend(const std::string& path, unsigned percent, Config* res
 	}
 	const auto item_size = ItemSize(meta->key_len, meta->val_len);
 	auto next = meta->capacity + RECYCLE_CAPACITY;
-	auto extend = (meta->capacity * percent + 99) / 100;
+	auto extend = static_cast<uint32_t>(
+			(static_cast<uint64_t>(meta->capacity) * percent + 99) / 100);
 
-	if (meta->capacity + extend > max_cap) {
+	if (extend > max_cap - meta->capacity) {
 		extend = max_cap - meta->capacity;
 	}
 	res = MemMap();	//release
