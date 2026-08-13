@@ -18,6 +18,8 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <cstring>
+#include <limits>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
@@ -129,9 +131,62 @@ MemMap::MemMap(const char* path, bool populate, bool exclusive, size_t size) noe
 	m_fd = fd;
 }
 
-static inline constexpr size_t RoundUp(size_t n) {
-	constexpr size_t m = 0x1fffff;
-	return (n+m)&(~m);
+static unsigned DetectHugePageShift() noexcept {
+#ifndef MAP_HUGETLB
+	return 0;
+#else
+	auto file = fopen("/proc/meminfo", "r");
+	if (file == nullptr) {
+		return 0;
+	}
+
+	unsigned shift = 0;
+	char line[256];
+	while (fgets(line, sizeof(line), file) != nullptr) {
+		static constexpr char prefix[] = "Hugepagesize:";
+		if (strncmp(line, prefix, sizeof(prefix)-1) != 0) {
+			continue;
+		}
+
+		unsigned long long size_kb = 0;
+		char unit[3] = {};
+		char extra = 0;
+		const auto count = sscanf(line + sizeof(prefix)-1, " %llu %2s %c", &size_kb, unit, &extra);
+		if (count != 2 || strcmp(unit, "kB") != 0
+				|| size_kb > std::numeric_limits<size_t>::max()/1024) {
+			break;
+		}
+
+		const auto size = static_cast<size_t>(size_kb) * 1024;
+		static constexpr size_t max_size = 16*1024*1024;
+		if (size == 0 || size > max_size || (size & (size-1)) != 0) {
+			break;
+		}
+		for (auto value = size; value > 1; value >>= 1) {
+			++shift;
+		}
+		break;
+	}
+	fclose(file);
+	return shift;
+#endif
+}
+
+static const unsigned ES_HUGEPAGE_SHIFT = DetectHugePageShift();
+
+static inline size_t RoundUp(size_t n) noexcept {
+	if (ES_HUGEPAGE_SHIFT == 0) {
+		return n;
+	}
+	const auto mask = (size_t{1} << ES_HUGEPAGE_SHIFT) - 1;
+	if (n > std::numeric_limits<size_t>::max() - mask) {
+		return 0;
+	}
+	return (n+mask)&(~mask);
+}
+
+unsigned GetHugePageShift() noexcept {
+	return ES_HUGEPAGE_SHIFT;
 }
 
 static bool Read(int fd, uint8_t* data, size_t size) noexcept {
@@ -183,9 +238,22 @@ MemMap::MemMap(size_t size, const std::function<bool(uint8_t*)>& load) {
     return;
   }
   auto round_up_size = RoundUp(size);
-  void* addr = mmap(nullptr, round_up_size, PROT_READ | PROT_WRITE,
-                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-  if (addr == MAP_FAILED && errno == ENOMEM) {
+  if (round_up_size == 0) {
+    Logger::Printf("unexpected size: %lu\n", size);
+    return;
+  }
+  void* addr = MAP_FAILED;
+#ifdef MAP_HUGETLB
+  if (ES_HUGEPAGE_SHIFT != 0) {
+    addr = mmap(nullptr, round_up_size, PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    if (addr == MAP_FAILED && errno != ENOMEM) {
+      Logger::Printf("fail to mmap[%d]: %lu\n", errno, round_up_size);
+      return;
+    }
+  }
+#endif
+  if (addr == MAP_FAILED) {
     addr = mmap(nullptr, round_up_size, PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   }

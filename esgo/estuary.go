@@ -268,8 +268,10 @@ func (es *Estuary) Fetch(key []byte) ([]byte, bool) {
 	return es.FetchTo(key, nil)
 }
 
-// FetchTo returns a copy of the value for key. It reuses dst from the beginning
-// when its capacity is sufficient and allocates a larger buffer otherwise.
+// FetchTo returns a copy of the value for key. Prefer it to Fetch in hot read
+// loops: it reuses dst from the beginning without allocating when dst has
+// enough capacity, and allocates a larger buffer otherwise. The returned slice
+// may share dst's backing array and is overwritten when that buffer is reused.
 // It returns nil, false when key is not found.
 func (es *Estuary) FetchTo(key, dst []byte) ([]byte, bool) {
 	if es.meta == nil {
