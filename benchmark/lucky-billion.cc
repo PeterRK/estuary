@@ -19,6 +19,7 @@
 #include <cstring>
 #include <iostream>
 #include <algorithm>
+#include <atomic>
 #include <thread>
 #include <memory>
 #include <vector>
@@ -94,10 +95,10 @@ static int BenchFetch() {
 
 	uint64_t write_ops = 0;
 	uint64_t write_ns = 0;
-	volatile bool quit = FLAGS_disable_write;
+	std::atomic<bool> quit{FLAGS_disable_write};
 	std::thread writer([&dict, &quit, &write_ops, &write_ns](){
 		RandEmbGenerator writer(batch, BILLION);
-		while (!quit) {
+		while (!quit.load(std::memory_order_relaxed)) {
 			auto start = std::chrono::steady_clock::now();
 			dict.batch_update(writer);
 			auto end = std::chrono::steady_clock::now();
@@ -132,7 +133,7 @@ static int BenchFetch() {
 		t.join();
 	}
 
-	quit = true;
+	quit.store(true, std::memory_order_relaxed);
 	writer.join();
 
 	uint64_t qps = 0;

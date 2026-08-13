@@ -19,6 +19,7 @@
 #include <cstring>
 #include <iostream>
 #include <algorithm>
+#include <atomic>
 #include <thread>
 #include <string>
 #include <chrono>
@@ -59,7 +60,7 @@ static int BenchFetch() {
 
 	uint64_t write_ops = 0;
 	uint64_t write_ns = 0;
-	volatile bool quit = FLAGS_disable_write;
+	std::atomic<bool> quit{FLAGS_disable_write};
 	std::thread writer([ &dict, &quit, &write_ops, &write_ns](){
 		XorShift128Plus rnd;
 		uint64_t key = 0;
@@ -72,7 +73,7 @@ static int BenchFetch() {
 
 		auto start = std::chrono::steady_clock::now();
 		if (FLAGS_disable_pipeline) {
-			for (; !quit; write_ops++) {
+			for (; !quit.load(std::memory_order_relaxed); write_ops++) {
 				key = rnd() % SIZE;
 				dict.update({(const uint8_t *) &key, sizeof(uint64_t)}, {val, len++});
 			}
@@ -80,7 +81,7 @@ static int BenchFetch() {
 			Context a(rnd, dict);
 			Context b(rnd, dict);
 			dict.touch(a.code);
-			for (; !quit; write_ops++) {
+			for (; !quit.load(std::memory_order_relaxed); write_ops++) {
 				Context c(rnd, dict);
 				dict.touch(b.code);
 				dict.update(a.code, {(const uint8_t*)&a.key, sizeof(uint64_t)}, {val, len++});
@@ -131,7 +132,7 @@ static int BenchFetch() {
 		t.join();
 	}
 
-	quit = true;
+	quit.store(true, std::memory_order_relaxed);
 	writer.join();
 
 	uint64_t qps = 0;
@@ -179,4 +180,3 @@ int main(int argc, char* argv[]) {
 		return BenchFetch();
 	}
 }
-
