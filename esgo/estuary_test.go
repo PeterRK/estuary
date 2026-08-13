@@ -109,6 +109,37 @@ func TestBuildAndRead(t *testing.T) {
 	assert(t, !got)
 }
 
+func TestFetchTo(t *testing.T) {
+	const filename = "fetch-to.es"
+
+	var src = &generator{}
+	src.init(0, tPiece, 5)
+	assert(t, Create(filename, tCfg, src) == nil)
+
+	dict, err := LoadFile(filename)
+	assert(t, err == nil && dict.Valid())
+	defer dict.Release()
+
+	src.Reset()
+	key, want := src.Get()
+	buf := make([]byte, 3, tCfg.MaxValLen)
+	got, found := dict.FetchTo(key, buf)
+	assert(t, found)
+	assert(t, bytes.Equal(want, got))
+	assert(t, &got[0] == &buf[0])
+
+	key, want = src.Get()
+	got, found = dict.FetchTo(key, make([]byte, 0, 1))
+	assert(t, found)
+	assert(t, bytes.Equal(want, got))
+	assert(t, cap(got) >= len(want))
+
+	missing := [8]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	got, found = dict.FetchTo(missing[:], buf)
+	assert(t, !found)
+	assert(t, got == nil)
+}
+
 func TestUpdate(t *testing.T) {
 	const filename = "update.es"
 

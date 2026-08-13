@@ -227,7 +227,7 @@ func (es *Estuary) sMark(off uint64) *uint64 {
 	return cast[uint64](&es.data[off])
 }
 
-func (es *Estuary) fetch(code uint64, key []byte) ([]byte, bool) {
+func (es *Estuary) fetch(code uint64, key, dst []byte) ([]byte, bool) {
 	pos := code % uint64(len(es.table))
 	tag := cutTag(code)
 	for i := 0; i < len(es.table); i++ {
@@ -247,8 +247,7 @@ func (es *Estuary) fetch(code uint64, key []byte) ([]byte, bool) {
 			}
 			rKey, rVal := extractRecord(mark, es.data[off:])
 			if bytes.Equal(key, rKey) {
-				val := make([]byte, len(rVal))
-				copy(val, rVal)
+				val := append(dst[:0], rVal...)
 				t = atomic.LoadUint64(&es.table[pos])
 				if e != t {
 					e = t
@@ -266,15 +265,22 @@ func (es *Estuary) fetch(code uint64, key []byte) ([]byte, bool) {
 }
 
 func (es *Estuary) Fetch(key []byte) ([]byte, bool) {
+	return es.FetchTo(key, nil)
+}
+
+// FetchTo returns a copy of the value for key. It reuses dst from the beginning
+// when its capacity is sufficient and allocates a larger buffer otherwise.
+// It returns nil, false when key is not found.
+func (es *Estuary) FetchTo(key, dst []byte) ([]byte, bool) {
 	if es.meta == nil {
 		return nil, false
 	}
 	code := hash(es.seed, key)
-	val, got := es.fetch(code, key)
+	val, got := es.fetch(code, key, dst)
 	if !got && atomic.LoadInt32(&es.sweeping) != 0 {
-		val, got = es.fetch(code, key)
+		val, got = es.fetch(code, key, dst)
 		if !got {
-			val, got = es.fetch(code, key)
+			val, got = es.fetch(code, key, dst)
 		}
 	}
 	return val, got
