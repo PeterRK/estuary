@@ -103,7 +103,7 @@ unsigned LuckyEstuary::_batch_fetch(unsigned batch, const uint8_t* __restrict__ 
 	if (batch == 0 || m_meta == nullptr || keys == nullptr || data == nullptr) {
 		return 0;
 	}
-	constexpr unsigned WINDOW_SIZE = 16;
+	constexpr unsigned WINDOW_SIZE = 32;
 	struct State {
 		unsigned idx;
 		uint32_t ent;
@@ -145,13 +145,6 @@ unsigned LuckyEstuary::_batch_fetch(unsigned batch, const uint8_t* __restrict__ 
 			if (next != Node::END) {
 				cur.node = NODE(next);
 				PrefetchForNext(cur.node);
-				auto off = (uintptr_t)cur.node & (CACHE_BLOCK_SIZE-1);
-				auto blk = (const void*)(((uintptr_t)cur.node & ~(uintptr_t)(CACHE_BLOCK_SIZE-1)) + CACHE_BLOCK_SIZE);
-				if (off + sizeof(uint32_t)+m_const.key_len > CACHE_BLOCK_SIZE) {
-					PrefetchForNext(blk);
-				} else if (off + sizeof(uint32_t)+m_const.key_len+m_const.val_len > CACHE_BLOCK_SIZE) {
-					PrefetchForFuture(blk);
-				}
 				i++;
 				continue;
 			} else if (dft_val != nullptr) {
