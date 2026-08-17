@@ -147,7 +147,7 @@ public:
 			return *this;
 		}
 		m_fac = (((DoubleWord)m) << BITWIDTH) / n;
-		Word r = m_fac * n + n;
+		Word r = static_cast<Word>(m_fac * n) + n;
 		if (r <= m) {
 			m_fac += 1;
 			m_tip = 0;
